@@ -16,3 +16,23 @@ output "web_public_ip" {
   description = "Public IP address of the web server"
   value       = aws_instance.web.public_ip
 }
+
+output "public_subnet_b_id" {
+  description = "ID of the second public subnet"
+  value       = aws_subnet.public_b.id
+}
+
+output "private_subnet_a_id" {
+  description = "ID of private subnet A"
+  value       = aws_subnet.private_a.id
+}
+
+output "private_subnet_b_id" {
+  description = "ID of private subnet B"
+  value       = aws_subnet.private_b.id
+}
+
+output "private_route_table_id" {
+  description = "ID of the private route table"
+  value       = aws_route_table.private.id
+}
