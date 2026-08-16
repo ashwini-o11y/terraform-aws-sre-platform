@@ -90,7 +90,7 @@ resource "aws_lb_listener" "web" {
 }
 
 # ---------------------------------------------------------
-# Existing public EC2
+# Existing Public EC2
 # Keep this temporarily during migration
 # ---------------------------------------------------------
 
@@ -104,8 +104,10 @@ resource "aws_instance" "web" {
 
   user_data = <<-EOF
               #!/bin/bash
+
               dnf update -y
               dnf install -y nginx
+
               systemctl enable nginx
               systemctl start nginx
 
@@ -123,6 +125,12 @@ resource "aws_instance" "web" {
               </html>
               HTML
               EOF
+
+  lifecycle {
+    ignore_changes = [
+      user_data
+    ]
+  }
 
   tags = {
     Name        = "sre-${var.environment}-web"
@@ -151,11 +159,52 @@ resource "aws_instance" "app_a" {
 
   user_data = <<-EOF
               #!/bin/bash
+
               dnf update -y
               dnf install -y nginx
 
               systemctl enable nginx
               systemctl start nginx
+
+              # -------------------------------------------------
+              # Install Prometheus Node Exporter
+              # -------------------------------------------------
+
+              useradd --no-create-home --shell /bin/false node_exporter
+
+              cd /tmp
+
+              curl -LO https://github.com/prometheus/node_exporter/releases/download/v1.9.1/node_exporter-1.9.1.linux-amd64.tar.gz
+
+              tar -xzf node_exporter-1.9.1.linux-amd64.tar.gz
+
+              cp node_exporter-1.9.1.linux-amd64/node_exporter /usr/local/bin/node_exporter
+
+              chown node_exporter:node_exporter /usr/local/bin/node_exporter
+
+              cat > /etc/systemd/system/node_exporter.service <<'SERVICE'
+              [Unit]
+              Description=Prometheus Node Exporter
+              Wants=network-online.target
+              After=network-online.target
+
+              [Service]
+              User=node_exporter
+              Group=node_exporter
+              Type=simple
+              ExecStart=/usr/local/bin/node_exporter
+
+              [Install]
+              WantedBy=multi-user.target
+              SERVICE
+
+              systemctl daemon-reload
+              systemctl enable node_exporter
+              systemctl start node_exporter
+
+              # -------------------------------------------------
+              # Application page
+              # -------------------------------------------------
 
               cat > /usr/share/nginx/html/index.html <<'HTML'
               <html>
@@ -172,6 +221,12 @@ resource "aws_instance" "app_a" {
               </html>
               HTML
               EOF
+
+  lifecycle {
+    ignore_changes = [
+      user_data
+    ]
+  }
 
   tags = {
     Name        = "sre-${var.environment}-app-a"
@@ -200,11 +255,52 @@ resource "aws_instance" "app_b" {
 
   user_data = <<-EOF
               #!/bin/bash
+
               dnf update -y
               dnf install -y nginx
 
               systemctl enable nginx
               systemctl start nginx
+
+              # -------------------------------------------------
+              # Install Prometheus Node Exporter
+              # -------------------------------------------------
+
+              useradd --no-create-home --shell /bin/false node_exporter
+
+              cd /tmp
+
+              curl -LO https://github.com/prometheus/node_exporter/releases/download/v1.9.1/node_exporter-1.9.1.linux-amd64.tar.gz
+
+              tar -xzf node_exporter-1.9.1.linux-amd64.tar.gz
+
+              cp node_exporter-1.9.1.linux-amd64/node_exporter /usr/local/bin/node_exporter
+
+              chown node_exporter:node_exporter /usr/local/bin/node_exporter
+
+              cat > /etc/systemd/system/node_exporter.service <<'SERVICE'
+              [Unit]
+              Description=Prometheus Node Exporter
+              Wants=network-online.target
+              After=network-online.target
+
+              [Service]
+              User=node_exporter
+              Group=node_exporter
+              Type=simple
+              ExecStart=/usr/local/bin/node_exporter
+
+              [Install]
+              WantedBy=multi-user.target
+              SERVICE
+
+              systemctl daemon-reload
+              systemctl enable node_exporter
+              systemctl start node_exporter
+
+              # -------------------------------------------------
+              # Application page
+              # -------------------------------------------------
 
               cat > /usr/share/nginx/html/index.html <<'HTML'
               <html>
@@ -221,6 +317,12 @@ resource "aws_instance" "app_b" {
               </html>
               HTML
               EOF
+
+  lifecycle {
+    ignore_changes = [
+      user_data
+    ]
+  }
 
   tags = {
     Name        = "sre-${var.environment}-app-b"
