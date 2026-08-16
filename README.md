@@ -150,7 +150,8 @@ Centralized Logging	🔜 Planned
 CI/CD	🔜 Planned
 Terraform Security Scanning	🔜 Planned
 🗺️ Roadmap
-Phase 1 — Infrastructure Foundation
+
+**Phase 1** — Infrastructure Foundation
  Terraform project
  AWS VPC
  Multi-AZ networking
@@ -158,27 +159,31 @@ Phase 1 — Infrastructure Foundation
  Internet Gateway
  NAT Gateway
  Security Groups
-Phase 2 — Application Platform
+
+**Phase 2** — Application Platform
  Application Load Balancer
  Target Group
  Private application servers
  NGINX
  Multi-AZ application deployment
  ALB health checks
-Phase 3 — Metrics Observability
+
+**Phase 3** — Metrics Observability
  Prometheus
  Node Exporter
  Prometheus target configuration
  Monitoring Security Group
  Secure TCP/9100 access
  Metrics connectivity validation
-Phase 4 — Visualization
+
+**Phase 4** — Visualization
  Grafana
  Infrastructure dashboard
  Application dashboard
  Prometheus dashboard
  CPU/memory/disk/network panels
-Phase 5 — SRE Practices
+
+**Phase 5** — SRE Practices
  SLIs
  SLOs
  Error budgets
@@ -186,14 +191,16 @@ Phase 5 — SRE Practices
  Alert routing
  Incident response workflow
  Runbooks
-Phase 6 — Advanced Observability
+
+**Phase 6** — Advanced Observability
  OpenTelemetry
  Distributed tracing
  Application metrics
  Centralized logging
  Trace-to-metric correlation
  Service dependency mapping
-Phase 7 — Automation and Platform Engineering
+
+**Phase 7** — Automation and Platform Engineering
  AWS service discovery
  GitHub Actions CI/CD
  Terraform automated validation
