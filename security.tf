@@ -1,3 +1,7 @@
+# ---------------------------------------------------------
+# Web Security Group
+# ---------------------------------------------------------
+
 resource "aws_security_group" "web" {
   name        = "sre-${var.environment}-web-sg"
   description = "Security group for SRE platform web server"
@@ -26,6 +30,11 @@ resource "aws_security_group" "web" {
     Project     = "SRE Platform"
   }
 }
+
+# ---------------------------------------------------------
+# Application Load Balancer Security Group
+# ---------------------------------------------------------
+
 resource "aws_security_group" "alb" {
   name        = "sre-${var.environment}-alb-sg"
   description = "Security group for SRE platform ALB"
@@ -56,18 +65,14 @@ resource "aws_security_group" "alb" {
   }
 }
 
+# ---------------------------------------------------------
+# Application Security Group
+# ---------------------------------------------------------
+
 resource "aws_security_group" "app" {
   name        = "sre-${var.environment}-app-sg"
   description = "Security group for SRE platform application servers"
   vpc_id      = aws_vpc.sre_vpc.id
-
-  ingress {
-    description     = "HTTP from ALB"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
 
   egress {
     description = "Allow outbound traffic"
@@ -85,18 +90,15 @@ resource "aws_security_group" "app" {
     Tier        = "application"
   }
 }
+
+# ---------------------------------------------------------
+# Monitoring Security Group
+# ---------------------------------------------------------
+
 resource "aws_security_group" "monitoring" {
   name        = "sre-${var.environment}-monitoring-sg"
   description = "Security group for SRE monitoring infrastructure"
   vpc_id      = aws_vpc.sre_vpc.id
-
-  ingress {
-    description = "Prometheus UI"
-    from_port   = 9090
-    to_port     = 9090
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]
-  }
 
   egress {
     description = "Allow outbound traffic"
@@ -113,17 +115,6 @@ resource "aws_security_group" "monitoring" {
     Project     = "SRE Platform"
     Tier        = "monitoring"
   }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "app_node_exporter" {
-  security_group_id            = aws_security_group.app.id
-  referenced_security_group_id = aws_security_group.monitoring.id
-
-  from_port   = 9100
-  to_port     = 9100
-  ip_protocol = "tcp"
-
-  description = "Prometheus monitoring server to Node Exporter"
 }
 
 # ---------------------------------------------------------
@@ -160,8 +151,58 @@ resource "aws_security_group" "grafana" {
   }
 }
 
+# =========================================================
+# Standalone Security Group Ingress Rules
+# =========================================================
+
 # ---------------------------------------------------------
-# Allow Grafana to query Prometheus
+# ALB -> Application Servers : TCP/80
+# ---------------------------------------------------------
+
+resource "aws_vpc_security_group_ingress_rule" "app_http_from_alb" {
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.alb.id
+
+  from_port   = 80
+  to_port     = 80
+  ip_protocol = "tcp"
+
+  description = "HTTP from ALB"
+}
+
+# ---------------------------------------------------------
+# Prometheus -> Node Exporter : TCP/9100
+# ---------------------------------------------------------
+
+resource "aws_vpc_security_group_ingress_rule" "app_node_exporter" {
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.monitoring.id
+
+  from_port   = 9100
+  to_port     = 9100
+  ip_protocol = "tcp"
+
+  description = "Prometheus monitoring server to Node Exporter"
+}
+
+# ---------------------------------------------------------
+# VPC -> Prometheus UI : TCP/9090
+# ---------------------------------------------------------
+
+resource "aws_vpc_security_group_ingress_rule" "prometheus_ui" {
+  security_group_id = aws_security_group.monitoring.id
+
+  cidr_ipv4 = "10.0.0.0/16"
+
+  from_port   = 9090
+  to_port     = 9090
+  ip_protocol = "tcp"
+
+  description = "Prometheus UI"
+}
+
+# ---------------------------------------------------------
+# Grafana -> Prometheus : TCP/9090
 # ---------------------------------------------------------
 
 resource "aws_vpc_security_group_ingress_rule" "prometheus_from_grafana" {
