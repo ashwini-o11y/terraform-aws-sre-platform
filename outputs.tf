@@ -51,3 +51,23 @@ output "alb_arn" {
   description = "ARN of the application load balancer"
   value       = aws_lb.web.arn
 }
+output "prometheus_instance_id" {
+  value = aws_instance.prometheus.id
+}
+
+output "prometheus_private_ip" {
+  value = aws_instance.prometheus.private_ip
+}
+# ---------------------------------------------------------
+# Grafana Outputs
+# ---------------------------------------------------------
+
+output "grafana_instance_id" {
+  description = "Grafana EC2 instance ID"
+  value       = aws_instance.grafana.id
+}
+
+output "grafana_private_ip" {
+  description = "Grafana private IP address"
+  value       = aws_instance.grafana.private_ip
+}

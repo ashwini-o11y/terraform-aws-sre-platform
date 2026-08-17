@@ -85,3 +85,92 @@ resource "aws_security_group" "app" {
     Tier        = "application"
   }
 }
+resource "aws_security_group" "monitoring" {
+  name        = "sre-${var.environment}-monitoring-sg"
+  description = "Security group for SRE monitoring infrastructure"
+  vpc_id      = aws_vpc.sre_vpc.id
+
+  ingress {
+    description = "Prometheus UI"
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+
+  egress {
+    description = "Allow outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "sre-${var.environment}-monitoring-sg"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = "SRE Platform"
+    Tier        = "monitoring"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "app_node_exporter" {
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.monitoring.id
+
+  from_port   = 9100
+  to_port     = 9100
+  ip_protocol = "tcp"
+
+  description = "Prometheus monitoring server to Node Exporter"
+}
+
+# ---------------------------------------------------------
+# Grafana Security Group
+# ---------------------------------------------------------
+
+resource "aws_security_group" "grafana" {
+  name        = "sre-${var.environment}-grafana-sg"
+  description = "Security group for SRE Grafana monitoring server"
+  vpc_id      = aws_vpc.sre_vpc.id
+
+  ingress {
+    description = "Grafana UI from VPC"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+
+  egress {
+    description = "Allow outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "sre-${var.environment}-grafana-sg"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = "SRE Platform"
+    Tier        = "monitoring"
+  }
+}
+
+# ---------------------------------------------------------
+# Allow Grafana to query Prometheus
+# ---------------------------------------------------------
+
+resource "aws_vpc_security_group_ingress_rule" "prometheus_from_grafana" {
+  security_group_id            = aws_security_group.monitoring.id
+  referenced_security_group_id = aws_security_group.grafana.id
+
+  from_port   = 9090
+  to_port     = 9090
+  ip_protocol = "tcp"
+
+  description = "Grafana to Prometheus"
+}

@@ -144,6 +144,9 @@ resource "aws_instance" "web" {
 # ---------------------------------------------------------
 # Private Application Server A
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# Private Application Server A
+# ---------------------------------------------------------
 
 resource "aws_instance" "app_a" {
   ami           = data.aws_ami.amazon_linux.id
@@ -157,10 +160,31 @@ resource "aws_instance" "app_a" {
 
   associate_public_ip_address = false
 
+  iam_instance_profile        = aws_iam_instance_profile.app_ssm.name
+  user_data_replace_on_change = true
+
   user_data = <<-EOF
               #!/bin/bash
 
+              # -------------------------------------------------
+              # System update
+              # -------------------------------------------------
+
               dnf update -y
+
+              # -------------------------------------------------
+              # Install AWS Systems Manager Agent
+              # -------------------------------------------------
+
+              dnf install -y amazon-ssm-agent
+
+              systemctl enable amazon-ssm-agent
+              systemctl start amazon-ssm-agent
+
+              # -------------------------------------------------
+              # Install Nginx
+              # -------------------------------------------------
+
               dnf install -y nginx
 
               systemctl enable nginx
@@ -222,12 +246,6 @@ resource "aws_instance" "app_a" {
               HTML
               EOF
 
-  lifecycle {
-    ignore_changes = [
-      user_data
-    ]
-  }
-
   tags = {
     Name        = "sre-${var.environment}-app-a"
     Environment = var.environment
@@ -236,6 +254,51 @@ resource "aws_instance" "app_a" {
     Tier        = "application"
   }
 }
+
+resource "aws_iam_role" "app_ssm" {
+  name = "sre-${var.environment}-app-ssm-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = {
+    Name        = "sre-${var.environment}-app-ssm-role"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = "SRE Platform"
+    Tier        = "application"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "app_ssm" {
+  role       = aws_iam_role.app_ssm.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "app_ssm" {
+  name = "sre-${var.environment}-app-ssm-profile"
+  role = aws_iam_role.app_ssm.name
+
+  tags = {
+    Name        = "sre-${var.environment}-app-ssm-profile"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = "SRE Platform"
+    Tier        = "application"
+  }
+}
+
+# ---------------------------------------------------------
+# Private Application Server B
+# ---------------------------------------------------------
 
 # ---------------------------------------------------------
 # Private Application Server B
@@ -253,10 +316,31 @@ resource "aws_instance" "app_b" {
 
   associate_public_ip_address = false
 
+  iam_instance_profile        = aws_iam_instance_profile.app_ssm.name
+  user_data_replace_on_change = true
+
   user_data = <<-EOF
               #!/bin/bash
 
+              # -------------------------------------------------
+              # System update
+              # -------------------------------------------------
+
               dnf update -y
+
+              # -------------------------------------------------
+              # Install AWS Systems Manager Agent
+              # -------------------------------------------------
+
+              dnf install -y amazon-ssm-agent
+
+              systemctl enable amazon-ssm-agent
+              systemctl start amazon-ssm-agent
+
+              # -------------------------------------------------
+              # Install Nginx
+              # -------------------------------------------------
+
               dnf install -y nginx
 
               systemctl enable nginx
@@ -318,12 +402,6 @@ resource "aws_instance" "app_b" {
               HTML
               EOF
 
-  lifecycle {
-    ignore_changes = [
-      user_data
-    ]
-  }
-
   tags = {
     Name        = "sre-${var.environment}-app-b"
     Environment = var.environment
@@ -351,4 +429,216 @@ resource "aws_lb_target_group_attachment" "app_b" {
   target_group_arn = aws_lb_target_group.web.arn
   target_id        = aws_instance.app_b.id
   port             = 80
+}
+# ---------------------------------------------------------
+# Prometheus Monitoring Server
+# ---------------------------------------------------------
+
+resource "aws_instance" "prometheus" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t3.micro"
+  user_data_replace_on_change = true
+
+  subnet_id = aws_subnet.private_a.id
+
+  vpc_security_group_ids = [
+    aws_security_group.monitoring.id
+  ]
+  iam_instance_profile = aws_iam_instance_profile.prometheus.name
+
+  associate_public_ip_address = false
+
+  user_data = <<-EOF
+              #!/bin/bash
+
+              dnf update -y
+
+              # Install Prometheus
+              useradd --no-create-home --shell /bin/false prometheus
+
+              mkdir -p /etc/prometheus
+              mkdir -p /var/lib/prometheus
+              dnf update -y
+
+              # Install and start AWS SSM Agent
+              dnf install -y amazon-ssm-agent
+              systemctl enable amazon-ssm-agent
+              systemctl start amazon-ssm-agent
+
+              cd /tmp
+
+              curl -LO https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz
+
+              tar -xzf prometheus-3.5.0.linux-amd64.tar.gz
+
+              cp prometheus-3.5.0.linux-amd64/prometheus /usr/local/bin/
+              cp prometheus-3.5.0.linux-amd64/promtool /usr/local/bin/
+
+              cp -r prometheus-3.5.0.linux-amd64/consoles /etc/prometheus/
+              cp -r prometheus-3.5.0.linux-amd64/console_libraries /etc/prometheus/
+
+              chown -R prometheus:prometheus /etc/prometheus
+              chown -R prometheus:prometheus /var/lib/prometheus
+
+              cat > /etc/prometheus/prometheus.yml <<'PROM'
+              global:
+                scrape_interval: 15s
+
+              scrape_configs:
+
+                - job_name: "node-exporter"
+
+                  static_configs:
+                    - targets:
+                        - "10.0.11.132:9100"
+                        - "10.0.12.46:9100"
+              PROM
+
+              chown prometheus:prometheus /etc/prometheus/prometheus.yml
+
+              cat > /etc/systemd/system/prometheus.service <<'SERVICE'
+              [Unit]
+              Description=Prometheus Monitoring
+              Wants=network-online.target
+              After=network-online.target
+
+              [Service]
+              User=prometheus
+              Group=prometheus
+              Type=simple
+
+              ExecStart=/usr/local/bin/prometheus \
+                --config.file=/etc/prometheus/prometheus.yml \
+                --storage.tsdb.path=/var/lib/prometheus \
+                --web.listen-address=0.0.0.0:9090
+
+              Restart=always
+
+              [Install]
+              WantedBy=multi-user.target
+              SERVICE
+
+              systemctl daemon-reload
+              systemctl enable prometheus
+              systemctl start prometheus
+              EOF
+
+  tags = {
+    Name        = "sre-${var.environment}-prometheus"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = "SRE Platform"
+    Tier        = "monitoring"
+  }
+}
+
+# ---------------------------------------------------------
+# Grafana Monitoring Server
+# ---------------------------------------------------------
+
+resource "aws_instance" "grafana" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t3.micro"
+  user_data_replace_on_change = true
+
+  subnet_id = aws_subnet.private_a.id
+
+  vpc_security_group_ids = [
+    aws_security_group.grafana.id
+  ]
+
+  iam_instance_profile = aws_iam_instance_profile.grafana.name
+
+  associate_public_ip_address = false
+
+  user_data = <<-EOF
+              #!/bin/bash
+
+              # -------------------------------------------------
+              # System update
+              # -------------------------------------------------
+
+              dnf update -y
+
+              # -------------------------------------------------
+              # Install AWS Systems Manager Agent
+              # -------------------------------------------------
+
+              dnf install -y amazon-ssm-agent
+
+              systemctl enable amazon-ssm-agent
+              systemctl start amazon-ssm-agent
+
+              # -------------------------------------------------
+              # Configure Grafana Repository
+              # -------------------------------------------------
+
+              cat > /etc/yum.repos.d/grafana.repo <<'REPO'
+              [grafana]
+              name=grafana
+              baseurl=https://rpm.grafana.com
+              repo_gpgcheck=1
+              enabled=1
+              gpgcheck=1
+              gpgkey=https://rpm.grafana.com/gpg.key
+              sslverify=1
+              sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+              REPO
+
+              # -------------------------------------------------
+              # Import Grafana GPG key
+              # -------------------------------------------------
+
+              curl -fsSL https://rpm.grafana.com/gpg.key \
+                -o /tmp/grafana.gpg.key
+
+              rpm --import /tmp/grafana.gpg.key
+
+              # -------------------------------------------------
+              # Install Grafana OSS
+              # -------------------------------------------------
+
+              dnf install -y grafana
+
+              # -------------------------------------------------
+              # Configure Prometheus Datasource
+              # -------------------------------------------------
+
+              mkdir -p /etc/grafana/provisioning/datasources
+
+              cat > /etc/grafana/provisioning/datasources/prometheus.yml <<'DATASOURCE'
+              apiVersion: 1
+
+              datasources:
+                - name: Prometheus
+                  type: prometheus
+                  access: proxy
+                  url: http://${aws_instance.prometheus.private_ip}:9090
+                  isDefault: true
+                  editable: true
+              DATASOURCE
+
+              # -------------------------------------------------
+              # Configure Grafana
+              # -------------------------------------------------
+
+              sed -i 's/^;http_addr =.*$/http_addr = 0.0.0.0/' /etc/grafana/grafana.ini
+              sed -i 's/^;http_port =.*$/http_port = 3000/' /etc/grafana/grafana.ini
+
+              # -------------------------------------------------
+              # Start Grafana
+              # -------------------------------------------------
+
+              systemctl daemon-reload
+              systemctl enable grafana-server
+              systemctl start grafana-server
+              EOF
+
+  tags = {
+    Name        = "sre-${var.environment}-grafana"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = "SRE Platform"
+    Tier        = "monitoring"
+  }
 }
