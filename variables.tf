@@ -9,3 +9,9 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "ami_id" {
+  description = "Pinned Amazon Linux 2023 AMI ID"
+  type        = string
+  default     = "ami-06b92572563223046"
+}

@@ -1,18 +1,3 @@
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-
-  owners = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-x86_64"]
-  }
-
-  filter {
-    name   = "state"
-    values = ["available"]
-  }
-}
 
 # ---------------------------------------------------------
 # Application Load Balancer Target Group
@@ -95,7 +80,7 @@ resource "aws_lb_listener" "web" {
 # ---------------------------------------------------------
 
 resource "aws_instance" "web" {
-  ami           = data.aws_ami.amazon_linux.id
+  ami           = var.ami_id
   instance_type = "t3.micro"
 
   subnet_id                   = aws_subnet.public.id
@@ -149,7 +134,7 @@ resource "aws_instance" "web" {
 # ---------------------------------------------------------
 
 resource "aws_instance" "app_a" {
-  ami           = data.aws_ami.amazon_linux.id
+  ami           = var.ami_id
   instance_type = "t3.micro"
 
   subnet_id = aws_subnet.private_a.id
@@ -305,7 +290,7 @@ resource "aws_iam_instance_profile" "app_ssm" {
 # ---------------------------------------------------------
 
 resource "aws_instance" "app_b" {
-  ami           = data.aws_ami.amazon_linux.id
+  ami           = var.ami_id
   instance_type = "t3.micro"
 
   subnet_id = aws_subnet.private_b.id
@@ -435,7 +420,7 @@ resource "aws_lb_target_group_attachment" "app_b" {
 # ---------------------------------------------------------
 
 resource "aws_instance" "prometheus" {
-  ami                         = data.aws_ami.amazon_linux.id
+  ami                         = var.ami_id
   instance_type               = "t3.micro"
   user_data_replace_on_change = true
 
@@ -537,7 +522,7 @@ resource "aws_instance" "prometheus" {
 # ---------------------------------------------------------
 
 resource "aws_instance" "grafana" {
-  ami                         = data.aws_ami.amazon_linux.id
+  ami                         = var.ami_id
   instance_type               = "t3.micro"
   user_data_replace_on_change = true
 
@@ -611,12 +596,45 @@ resource "aws_instance" "grafana" {
 
               datasources:
                 - name: Prometheus
+                  uid: prometheus
                   type: prometheus
                   access: proxy
                   url: http://${aws_instance.prometheus.private_ip}:9090
                   isDefault: true
                   editable: true
               DATASOURCE
+
+              # -------------------------------------------------
+              # Configure Dashboard Provisioning
+              # -------------------------------------------------
+
+              mkdir -p /etc/grafana/provisioning/dashboards
+              mkdir -p /var/lib/grafana/dashboards
+
+              cat > /etc/grafana/provisioning/dashboards/dashboards.yml <<'DASHBOARD_PROVIDER'
+              apiVersion: 1
+
+              providers:
+                - name: 'SRE Platform'
+                  orgId: 1
+                  folder: 'SRE Platform'
+                  type: file
+                  disableDeletion: true
+                  updateIntervalSeconds: 30
+                  allowUiUpdates: false
+                  options:
+                    path: /var/lib/grafana/dashboards
+              DASHBOARD_PROVIDER
+
+              # -------------------------------------------------
+              # Deploy SRE Platform Dashboard
+              # -------------------------------------------------
+
+              echo '${base64encode(file("${path.module}/grafana/dashboards/sre-platform-overview.json"))}' \
+                | base64 -d > /var/lib/grafana/dashboards/sre-platform-overview.json
+
+              chown -R grafana:grafana /var/lib/grafana/dashboards
+              chmod 644 /var/lib/grafana/dashboards/sre-platform-overview.json
 
               # -------------------------------------------------
               # Configure Grafana
@@ -632,6 +650,12 @@ resource "aws_instance" "grafana" {
               systemctl daemon-reload
               systemctl enable grafana-server
               systemctl start grafana-server
+
+              # -------------------------------------------------
+              # Ensure Grafana reloads provisioning
+              # -------------------------------------------------
+
+              systemctl restart grafana-server
               EOF
 
   tags = {
