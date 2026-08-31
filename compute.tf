@@ -678,7 +678,6 @@ resource "aws_instance" "prometheus" {
               global:
                 resolve_timeout: 5m
 
-
               route:
                 group_by:
                   - alertname
@@ -686,10 +685,21 @@ resource "aws_instance" "prometheus" {
                 group_wait: 30s
                 group_interval: 5m
                 repeat_interval: 4h
-                receiver: "default"
+                receiver: "warning"
+
+                routes:
+                  - matchers:
+                      - severity="critical"
+                    receiver: "critical"
+
+                  - matchers:
+                      - severity="warning"
+                    receiver: "warning"
 
               receivers:
-                - name: "default"
+                - name: "critical"
+
+                - name: "warning"
               ALERTMANAGER
 
               chown -R alertmanager:alertmanager /etc/alertmanager
