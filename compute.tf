@@ -419,7 +419,14 @@ resource "aws_lb_target_group_attachment" "app_b" {
 # Prometheus Monitoring Server
 # ---------------------------------------------------------
 
+# ---------------------------------------------------------
+# Prometheus + Alertmanager Monitoring Server
+# ---------------------------------------------------------
+
 resource "aws_instance" "prometheus" {
+  lifecycle {
+    create_before_destroy = true
+  }
   ami                         = var.ami_id
   instance_type               = "t3.micro"
   user_data_replace_on_change = true
@@ -429,45 +436,77 @@ resource "aws_instance" "prometheus" {
   vpc_security_group_ids = [
     aws_security_group.monitoring.id
   ]
+
   iam_instance_profile = aws_iam_instance_profile.prometheus.name
 
   associate_public_ip_address = false
-
+  root_block_device {
+    volume_size = 30
+    volume_type = "gp3"
+    encrypted   = true
+  }
   user_data = <<-EOF
               #!/bin/bash
 
+              set -e
+
+              # -------------------------------------------------
+              # System update
+              # -------------------------------------------------
+
               dnf update -y
 
-              # Install Prometheus
-              useradd --no-create-home --shell /bin/false prometheus
+              # -------------------------------------------------
+              # Install AWS Systems Manager Agent
+              # -------------------------------------------------
 
-              mkdir -p /etc/prometheus
-              mkdir -p /var/lib/prometheus
-              dnf update -y
-
-              # Install and start AWS SSM Agent
               dnf install -y amazon-ssm-agent
+
               systemctl enable amazon-ssm-agent
               systemctl start amazon-ssm-agent
 
+              # -------------------------------------------------
+              # Prometheus user and directories
+              # -------------------------------------------------
+
+              id prometheus >/dev/null 2>&1 || \
+                useradd --no-create-home --shell /bin/false prometheus
+
+              mkdir -p /etc/prometheus
+              mkdir -p /var/lib/prometheus
+
+              # -------------------------------------------------
+              # Install Prometheus
+              # -------------------------------------------------
+
               cd /tmp
 
-              curl -LO https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz
+              curl -fLO https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz
 
               tar -xzf prometheus-3.5.0.linux-amd64.tar.gz
 
-              cp prometheus-3.5.0.linux-amd64/prometheus /usr/local/bin/
-              cp prometheus-3.5.0.linux-amd64/promtool /usr/local/bin/
+              cp prometheus-3.5.0.linux-amd64/prometheus /usr/local/bin/prometheus
+              cp prometheus-3.5.0.linux-amd64/promtool /usr/local/bin/promtool
 
-              cp -r prometheus-3.5.0.linux-amd64/consoles /etc/prometheus/
-              cp -r prometheus-3.5.0.linux-amd64/console_libraries /etc/prometheus/
+              rm -rf /tmp/prometheus-3.5.0.linux-amd64
+              rm -f /tmp/prometheus-3.5.0.linux-amd64.tar.gz
 
-              chown -R prometheus:prometheus /etc/prometheus
-              chown -R prometheus:prometheus /var/lib/prometheus
+              # -------------------------------------------------
+              # Prometheus configuration
+              # -------------------------------------------------
 
               cat > /etc/prometheus/prometheus.yml <<'PROM'
               global:
                 scrape_interval: 15s
+
+              alerting:
+                alertmanagers:
+                  - static_configs:
+                      - targets:
+                          - "localhost:9093"
+
+              rule_files:
+                - "/etc/prometheus/rules/*.yml"
 
               scrape_configs:
 
@@ -475,11 +514,116 @@ resource "aws_instance" "prometheus" {
 
                   static_configs:
                     - targets:
-                        - "10.0.11.132:9100"
-                        - "10.0.12.46:9100"
+                        - "${aws_instance.app_a.private_ip}:9100"
+                        - "${aws_instance.app_b.private_ip}:9100"
               PROM
 
-              chown prometheus:prometheus /etc/prometheus/prometheus.yml
+              # -------------------------------------------------
+              # Prometheus alert rules
+              # -------------------------------------------------
+
+              mkdir -p /etc/prometheus/rules
+
+              cat > /etc/prometheus/rules/sre-platform-alerts.yml <<'RULES'
+              groups:
+                - name: sre-platform-alerts
+                  interval: 30s
+
+                  rules:
+
+                    - alert: InstanceDown
+                      expr: up{job="node-exporter"} == 0
+                      for: 2m
+                      labels:
+                        severity: critical
+                        team: sre
+                      annotations:
+                        summary: "Node exporter is down"
+                        description: "Node exporter on {{ $labels.instance }} has been unavailable for more than 2 minutes."
+
+                    - alert: HighCPUUsage
+                      expr: |
+                        100 - (
+                          avg by(instance) (
+                            rate(node_cpu_seconds_total{mode="idle"}[5m])
+                          ) * 100
+                        ) > 80
+                      for: 5m
+                      labels:
+                        severity: warning
+                        team: sre
+                      annotations:
+                        summary: "High CPU usage detected"
+                        description: "CPU utilization on {{ $labels.instance }} has been above 80% for more than 5 minutes."
+
+                    - alert: HighMemoryUsage
+                      expr: |
+                        100 * (
+                          1 -
+                          (
+                            node_memory_MemAvailable_bytes /
+                            node_memory_MemTotal_bytes
+                          )
+                        ) > 85
+                      for: 5m
+                      labels:
+                        severity: warning
+                        team: sre
+                      annotations:
+                        summary: "High memory usage detected"
+                        description: "Memory utilization on {{ $labels.instance }} has been above 85% for more than 5 minutes."
+
+                    - alert: FilesystemAlmostFull
+                      expr: |
+                        100 * (
+                          1 -
+                          (
+                            node_filesystem_avail_bytes{
+                              mountpoint="/",
+                              fstype!="tmpfs"
+                            }
+                            /
+                            node_filesystem_size_bytes{
+                              mountpoint="/",
+                              fstype!="tmpfs"
+                            }
+                          )
+                        ) > 85
+                      for: 5m
+                      labels:
+                        severity: warning
+                        team: sre
+                      annotations:
+                        summary: "Filesystem usage is high"
+                        description: "Root filesystem on {{ $labels.instance }} has been above 85% utilization for more than 5 minutes."
+
+                    - alert: PrometheusTargetDown
+                      expr: up{job="node-exporter"} == 0
+                      for: 2m
+                      labels:
+                        severity: critical
+                        team: sre
+                      annotations:
+                        summary: "Prometheus target is down"
+                        description: "Prometheus cannot scrape {{ $labels.instance }} for more than 2 minutes."
+              RULES
+
+              chown -R prometheus:prometheus /etc/prometheus
+              chown -R prometheus:prometheus /var/lib/prometheus
+
+              # -------------------------------------------------
+              # Validate Prometheus configuration
+              # -------------------------------------------------
+
+              /usr/local/bin/promtool check config \
+                /etc/prometheus/prometheus.yml
+
+              /usr/local/bin/promtool check rules \
+                /etc/prometheus/rules/sre-platform-alerts.yml
+
+              # -------------------------------------------------
+              # Prometheus systemd service
+              # -------------------------------------------------
 
               cat > /etc/systemd/system/prometheus.service <<'SERVICE'
               [Unit]
@@ -498,14 +642,111 @@ resource "aws_instance" "prometheus" {
                 --web.listen-address=0.0.0.0:9090
 
               Restart=always
+              RestartSec=5
 
               [Install]
               WantedBy=multi-user.target
               SERVICE
 
+              # -------------------------------------------------
+              # Install Alertmanager
+              # -------------------------------------------------
+
+              id alertmanager >/dev/null 2>&1 || \
+                useradd --no-create-home --shell /bin/false alertmanager
+
+              mkdir -p /etc/alertmanager
+              mkdir -p /var/lib/alertmanager
+
+              cd /tmp
+
+              curl -fLO https://github.com/prometheus/alertmanager/releases/download/v0.33.1/alertmanager-0.33.1.linux-amd64.tar.gz
+
+              tar -xzf alertmanager-0.33.1.linux-amd64.tar.gz
+
+              cp alertmanager-0.33.1.linux-amd64/alertmanager /usr/local/bin/alertmanager
+              cp alertmanager-0.33.1.linux-amd64/amtool /usr/local/bin/amtool
+
+              rm -rf /tmp/alertmanager-0.33.1.linux-amd64
+              rm -f /tmp/alertmanager-0.33.1.linux-amd64.tar.gz
+
+              # -------------------------------------------------
+              # Alertmanager configuration
+              # -------------------------------------------------
+
+              cat > /etc/alertmanager/alertmanager.yml <<'ALERTMANAGER'
+              global:
+                resolve_timeout: 5m
+
+
+              route:
+                group_by:
+                  - alertname
+                  - instance
+                group_wait: 30s
+                group_interval: 5m
+                repeat_interval: 4h
+                receiver: "default"
+
+              receivers:
+                - name: "default"
+              ALERTMANAGER
+
+              chown -R alertmanager:alertmanager /etc/alertmanager
+              chown -R alertmanager:alertmanager /var/lib/alertmanager
+
+              # -------------------------------------------------
+              # Validate Alertmanager configuration
+              # -------------------------------------------------
+
+              /usr/local/bin/amtool check-config \
+                /etc/alertmanager/alertmanager.yml
+
+              # -------------------------------------------------
+              # Alertmanager systemd service
+              # -------------------------------------------------
+
+              cat > /etc/systemd/system/alertmanager.service <<'SERVICE'
+              [Unit]
+              Description=Alertmanager
+              Wants=network-online.target
+              After=network-online.target
+
+              [Service]
+              User=alertmanager
+              Group=alertmanager
+              Type=simple
+
+              ExecStart=/usr/local/bin/alertmanager \
+                --config.file=/etc/alertmanager/alertmanager.yml \
+                --storage.path=/var/lib/alertmanager \
+                --web.listen-address=127.0.0.1:9093
+
+              Restart=always
+              RestartSec=5
+
+              [Install]
+              WantedBy=multi-user.target
+              SERVICE
+
+              # -------------------------------------------------
+              # Start services
+              # -------------------------------------------------
+
               systemctl daemon-reload
+
               systemctl enable prometheus
-              systemctl start prometheus
+              systemctl enable alertmanager
+
+              systemctl restart alertmanager
+              systemctl restart prometheus
+
+              # -------------------------------------------------
+              # Final status
+              # -------------------------------------------------
+
+              systemctl is-active --quiet alertmanager
+              systemctl is-active --quiet prometheus
               EOF
 
   tags = {
@@ -516,12 +757,14 @@ resource "aws_instance" "prometheus" {
     Tier        = "monitoring"
   }
 }
-
 # ---------------------------------------------------------
 # Grafana Monitoring Server
 # ---------------------------------------------------------
 
 resource "aws_instance" "grafana" {
+  lifecycle {
+    create_before_destroy = true
+  }
   ami                         = var.ami_id
   instance_type               = "t3.micro"
   user_data_replace_on_change = true
