@@ -531,6 +531,113 @@ resource "aws_instance" "prometheus" {
 
                   rules:
 
+                    # -------------------------------------------------
+                    # SLI Recording Rules
+                    # -------------------------------------------------
+
+                    - record: sre:node_availability:ratio
+                      expr: |
+                        avg by(instance) (
+                          up{job="node-exporter"}
+                        )
+
+                    - record: sre:cpu_health:ratio
+                      expr: |
+                        avg by(instance) (
+                          (
+                            100 - (
+                              rate(node_cpu_seconds_total{mode="idle"}[5m]) * 100
+                            )
+                          ) <= bool 80
+                        )
+
+                    - record: sre:memory_health:ratio
+                      expr: |
+                        avg by(instance) (
+                          (
+                            100 * (
+                              1 -
+                              (
+                                node_memory_MemAvailable_bytes /
+                                node_memory_MemTotal_bytes
+                              )
+                            )
+                          ) <= bool 85
+                        )
+
+                    - record: sre:filesystem_health:ratio
+                      expr: |
+                        avg by(instance) (
+                          (
+                            100 * (
+                              1 -
+                              (
+                                node_filesystem_avail_bytes{
+                                  mountpoint="/",
+                                  fstype!="tmpfs"
+                                }
+                                /
+                                node_filesystem_size_bytes{
+                                  mountpoint="/",
+                                  fstype!="tmpfs"
+                                }
+                              )
+                            )
+                          ) <= bool 85
+                        )
+
+                    # -------------------------------------------------
+                    # SLO Recording Rules
+                    # -------------------------------------------------
+
+                    - record: sre:node_availability:slo
+                      expr: |
+                        avg(
+                          sre:node_availability:ratio
+                        ) >= 0.999
+
+                    - record: sre:cpu_health:slo
+                      expr: |
+                        avg(
+                          sre:cpu_health:ratio
+                        ) >= 0.99
+
+                    - record: sre:memory_health:slo
+                      expr: |
+                        avg(
+                          sre:memory_health:ratio
+                        ) >= 0.99
+
+                    - record: sre:filesystem_health:slo
+                      expr: |
+                        avg(
+                          sre:filesystem_health:ratio
+                        ) >= 0.99
+
+                    # -------------------------------------------------
+                    # Error Budget Recording Rules
+                    # -------------------------------------------------
+
+                    - record: sre:node_availability:error_budget
+                      expr: |
+                        1 - 0.999
+
+                    - record: sre:cpu_health:error_budget
+                      expr: |
+                        1 - 0.99
+
+                    - record: sre:memory_health:error_budget
+                      expr: |
+                        1 - 0.99
+
+                    - record: sre:filesystem_health:error_budget
+                      expr: |
+                        1 - 0.99
+
+                    # -------------------------------------------------
+                    # Alert Rules
+                    # -------------------------------------------------
+
                     - alert: InstanceDown
                       expr: up{job="node-exporter"} == 0
                       for: 2m
