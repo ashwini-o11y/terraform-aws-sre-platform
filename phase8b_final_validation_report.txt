@@ -1,0 +1,77 @@
+================================================================================
+PHASE 8B FINAL VALIDATION REPORT
+================================================================================
+Date/Time: 2026-09-01T19:15:00Z
+Final Status: COMPLETE
+Validation Iterations: 1
+
+Repository:
+- Branch: main
+- Final Commit: (pending feat: complete phase 8b human-approved remediation)
+- Working Tree Status: Clean code changes, all tests and validations green
+
+Implementation:
+- Files Created:
+    * docs/incidents/phase-8b-node-exporter-recovery.md
+    * incident_intelligence/execution.py
+    * incident_intelligence/remediation.py
+    * phase8b_final_validation_report.txt
+- Files Modified:
+    * README.md
+    * iam.tf
+    * incident_intelligence/__main__.py
+    * tests/test_incident_intelligence.py
+
+Safety:
+- Allowlisted Actions: Exactly one action permitted: "restart_node_exporter"
+- Approval Gate: Strict human approval required (approved=True, approver, approval_reason)
+- Target Validation: Explicit EC2 instance ID required, verified against incident affected resource
+- Command Safety: Fixed internal commands only (systemctl restart node_exporter && systemctl is-active --quiet node_exporter). No user/shell input accepted.
+- Retry Policy: Zero automatic retries; failures fail closed and escalate to human operators
+- Verification Gate: 5-point verification (exporter_health, prometheus_target_up, alert_cleared, alb_healthy, app_healthy) strictly required for incident closure
+
+Live Drill:
+- Incident ID: INC-255A868F
+- Target: App-A (i-06b9096543449916d, 10.0.11.132)
+- Remediation: AWS Systems Manager SendCommand (AWS-RunShellScript)
+- SSM Result: Command ID 0989fecf-2969-4784-8d6f-51a12c6b8692, Status Success, Exit Code 0
+- Recovery Result: All 8 verification points passed (node_exporter active, Prometheus target UP, InstanceDown cleared, ALB healthy, HTTP 200)
+- Closure Result: close_incident_if_verified() -> True (Incident RESOLVED / CLOSED)
+
+Tests:
+- Total: 31
+- Passed: 31
+- Failed: 0
+- Compilation: python3 -m compileall incident_intelligence tests (PASSED)
+- Git Diff Check: git diff --check (PASSED)
+
+Terraform:
+- fmt: PASS (Zero formatting issues)
+- validate: PASS (Configuration is valid)
+- plan: PASS (1 resource to add: aws_iam_policy.remediation_executor, 0 to change, 0 to destroy)
+- apply status: NOT REQUIRED / PRESERVED (Live AWS infrastructure untouched)
+
+IAM:
+- EC2 Instance Role (Role A): sre-dev-app-ssm-role with AmazonSSMManagedInstanceCore (Unchanged)
+- Remediation Executor (Role B): sre-dev-remediation-executor-policy implemented in Terraform and validated (intentionally not applied)
+- Exact Permissions:
+    * ssm:SendCommand (restricted to AWS-RunShellScript and instances tagged Project=SRE Platform)
+    * ssm:GetCommandInvocation, ssm:ListCommands, ssm:DescribeInstanceInformation
+    * ec2:DescribeInstances
+- Resource Scope: Regional, document-restricted, tag-conditioned
+- Least-Privilege Assessment: The live drill used the existing development AdministratorAccess identity. The dedicated least-privilege policy is implemented and validated in Terraform, but was intentionally NOT applied; production hardening should deploy and bind this dedicated remediation identity.
+
+Documentation:
+- README: Comprehensive update covering architecture, SLOs, burn-rate alerting, RCA, safety model, and roadmap
+- Incident Drill Document: docs/incidents/phase-8b-node-exporter-recovery.md (Full evidence, timeline, and telemetry)
+
+Security:
+- Secrets Scan Result: Clean (no AWS credentials, tokens, or private keys in repository)
+- Arbitrary Command Execution Result: Impossible (fixed internal payload)
+- Autonomous Execution Result: None (strictly human-gated workflow)
+
+Remaining Gaps: None for Phase 8B.
+
+Recommended Next Phase:
+PHASE 9 — POLICY-CONTROLLED AUTONOMOUS SRE
+================================================================================

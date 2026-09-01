@@ -1,0 +1,85 @@
+================================================================================
+PHASE 8B — CONTROLLED LIVE DRILL: STEP 2 REPORT
+(EXPLICIT HUMAN APPROVAL + LIVE REMEDIATION + RECOVERY VERIFICATION)
+================================================================================
+Incident ID: INC-255A868F
+Target Instance: App-A (i-06b9096543449916d, 10.0.11.132)
+Action: restart_node_exporter
+Approver: Ashwini
+Approval Reason: Controlled Phase 8B remediation drill to restore the App-A monitoring agent after confirmed node_exporter failure.
+Approval Timestamp: 2026-09-01T18:58:52Z
+Execution Mode: LIVE (AWS Systems Manager SendCommand)
+
+--------------------------------------------------------------------------------
+1. FINAL EXECUTION AUTHORIZATION SUMMARY (PRE-EXECUTION)
+--------------------------------------------------------------------------------
+- Incident: INC-255A868F
+- Target: i-06b9096543449916d (10.0.11.132:9100)
+- Action: restart_node_exporter
+- Approver: Ashwini
+- Approval Reason: Controlled Phase 8B remediation drill to restore the App-A monitoring agent after confirmed node_exporter failure.
+- Allowlist Validation: PASS (action in ALLOWED_ACTIONS)
+- Target Validation: PASS (exact instance ID matches affected resource)
+- Execution Mode: LIVE (AWS Systems Manager SendCommand)
+
+--------------------------------------------------------------------------------
+2. LIVE REMEDIATION EXECUTION TELEMETRY
+--------------------------------------------------------------------------------
+- Execution Mechanism: AWS Systems Manager SendCommand
+- Document Name: AWS-RunShellScript
+- Fixed Command Payload:
+    1. systemctl restart node_exporter
+    2. systemctl is-active --quiet node_exporter
+- Target Instance: i-06b9096543449916d
+- SSM Command ID: 0989fecf-2969-4784-8d6f-51a12c6b8692
+- Submission Timestamp: 2026-09-01T18:58:52Z
+- Completion Timestamp: 2026-09-01T18:58:55Z
+- SSM Invocation Status: Success
+- Exit Code: 0 (clean exit)
+- Stdout Excerpt: (none - quiet validation)
+- Stderr Excerpt: (none)
+- Error Info: None
+
+--------------------------------------------------------------------------------
+3. EIGHT-POINT RECOVERY VERIFICATION
+--------------------------------------------------------------------------------
+[PASS] 1. node_exporter service is active on App-A
+          Evidence: systemctl is-active reports 'active'
+          Process: PID 133185 (node_exporter) running with active status
+
+[PASS] 2. Prometheus target 10.0.11.132:9100 is UP
+          Evidence: Prometheus target health='up', lastError='', lastScrape succeeded
+
+[PASS] 3. InstanceDown alert has cleared
+          Evidence: Alert no longer present / firing in Prometheus alert manager rules
+
+[PASS] 4. NodeAvailabilityBurnRateHigh has cleared / recovering
+          Evidence: Underlying node up condition resolved; scrape healthy
+
+[PASS] 5. App-A ALB target remains healthy
+          Evidence: Target group sre-dev-web-tg target i-06b9096543449916d is 'healthy'
+
+[PASS] 6. App-B ALB target remains healthy
+          Evidence: Target group sre-dev-web-tg target i-078cdb8c637466f5e is 'healthy'
+
+[PASS] 7. ALB returns HTTP 200
+          Evidence: Endpoint http://sre-dev-alb-1147481649.eu-west-1.elb.amazonaws.com returned HTTP 200
+
+[PASS] 8. Application remains healthy
+          Evidence: Nginx serving application traffic normally across all AZ targets
+
+--------------------------------------------------------------------------------
+4. INCIDENT CLOSURE STATUS
+--------------------------------------------------------------------------------
+- Five-Point Recovery Criteria Evaluation: VERIFIED
+    * exporter_health       : True
+    * prometheus_target_up  : True
+    * alert_cleared         : True
+    * alb_healthy           : True
+    * app_healthy           : True
+- Incident Closure Decision: close_incident_if_verified() -> PERMITTED (True)
+- Final Incident Status: RESOLVED / CLOSED
+
+================================================================================
+DRILL STEP 2 RESULT: REMEDIATION & VERIFICATION SUCCESSFUL
+================================================================================

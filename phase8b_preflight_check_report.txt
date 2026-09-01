@@ -1,0 +1,80 @@
+================================================================================
+PHASE 8B — LIVE REMEDIATION PRE-FLIGHT CHECK REPORT
+================================================================================
+Execution Mode: READ-ONLY
+Target: App-A only
+Date: 2026-09-01
+
+--------------------------------------------------------------------------------
+1. AWS IDENTITY
+--------------------------------------------------------------------------------
+Status: PASS
+- Account ID: 982534378429
+- Principal / Identity Type: IAM User (terraform-lab)
+- User ID: AIDA6JQ442O62KCZVBT27
+- Caller ARN: arn:aws:iam::982534378429:user/terraform-lab
+
+--------------------------------------------------------------------------------
+2. SSM EXECUTION PERMISSIONS
+--------------------------------------------------------------------------------
+Status: PASS
+- Attached Policy: AdministratorAccess (arn:aws:iam::aws:policy/AdministratorAccess)
+- Permitted Actions: ssm:SendCommand, ssm:GetCommandInvocation
+- Verification Method: Read-only IAM policy inspection (no commands dispatched)
+
+--------------------------------------------------------------------------------
+3. APP-A IDENTITY
+--------------------------------------------------------------------------------
+Status: PASS
+- Instance ID: i-06b9096543449916d
+- Private IP: 10.0.11.132
+- Instance State: running
+- Tags:
+    Name        = sre-dev-app-a
+    Environment = dev
+    Tier        = application
+    Project     = SRE Platform
+    ManagedBy   = Terraform
+- SSM PingStatus: Online
+- SSM Agent Version: 3.3.4624.0
+- Platform: Amazon Linux 2023 (Linux x86_64)
+
+--------------------------------------------------------------------------------
+4. APP-A MONITORING STATE
+--------------------------------------------------------------------------------
+Status: UNKNOWN
+- Details: Local port forwarding to private Prometheus (39090) / Alertmanager (39093)
+  is not active in this devcontainer session. Remote state was not probed via SSM
+  in order to strictly preserve read-only zero-command safety.
+
+--------------------------------------------------------------------------------
+5. APPLICATION STATE
+--------------------------------------------------------------------------------
+Status: PASS
+- ALB Target Health (i-06b9096543449916d:80): healthy
+- ALB DNS Name: sre-dev-alb-1147481649.eu-west-1.elb.amazonaws.com
+- ALB HTTP Response: HTTP 200 OK
+- Application Health: healthy
+
+--------------------------------------------------------------------------------
+6. SAFETY CONSISTENCY
+--------------------------------------------------------------------------------
+Status: PASS
+- Target Intended: App-A (i-06b9096543449916d) matches single allowlisted target
+- Application Health: healthy (HTTP 200)
+- ALB Target Health: healthy
+- SSM PingStatus: Online
+- Active Remediation Executions: None (aws ssm list-commands returned 0 active)
+
+--------------------------------------------------------------------------------
+7. REPOSITORY STATE
+--------------------------------------------------------------------------------
+Status: PASS
+- Branch: main (ahead of origin/main by 4 commits)
+- Latest Commit: 5b864ea ("feat: add incident intelligence foundation")
+- Unit Test Suite: 31 passed / 31 total (python3 -m unittest discover -v)
+- Phase 8B Live SSM Adapter: Implemented, dry-run by default, allowlisted
+
+================================================================================
+FINAL VERDICT: READY FOR CONTROLLED DRILL
+================================================================================

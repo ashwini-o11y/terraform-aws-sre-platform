@@ -1,0 +1,84 @@
+================================================================================
+PHASE 8B — CONTROLLED LIVE DRILL: STEP 1 REPORT (FAILURE INJECTION ONLY)
+================================================================================
+Target Instance: App-A (i-06b9096543449916d, 10.0.11.132)
+Timestamp: 2026-09-01T18:54:33Z
+Drill Stage: Step 1 (Controlled Failure Injection & Read-Only Signal Capture)
+
+--------------------------------------------------------------------------------
+1. SUMMARY RESULT
+--------------------------------------------------------------------------------
+Result: FAILURE INJECTED SUCCESSFULLY
+
+- node_exporter           = DOWN
+- SSM                     = ONLINE
+- application             = HEALTHY
+- ALB                     = HEALTHY
+- customer impact         = NONE
+- recommended remediation = restart_node_exporter
+- remediation executed    = NO
+
+--------------------------------------------------------------------------------
+2. FAILURE INJECTION DETAILS
+--------------------------------------------------------------------------------
+- Injection Method: Controlled AWS Systems Manager SendCommand
+- Document: AWS-RunShellScript
+- Command Executed: systemctl stop node_exporter
+- Target Instance ID: i-06b9096543449916d
+- SSM Command ID: 976da83e-3211-41a3-b4e0-e1859b37dc9b
+- Command Status: Success
+
+--------------------------------------------------------------------------------
+3. TELEMETRY & OBSERVABILITY EVIDENCE
+--------------------------------------------------------------------------------
+- App-A node_exporter State:
+    * Status: inactive (dead)
+    * Service: /etc/systemd/system/node_exporter.service
+    * Process Exit: code=killed, signal=TERM
+
+- App-A SSM Agent State:
+    * Status: Online
+    * Agent Version: 3.3.4624.0
+    * Platform: Amazon Linux 2023
+
+- Prometheus Target State (Scrape Pool: node-exporter):
+    * Target 10.0.11.132:9100 (App-A): DOWN
+      - lastError: Get "http://10.0.11.132:9100/metrics": dial tcp 10.0.11.132:9100: connect: connection refused
+    * Target 10.0.12.233:9100 (App-B): UP
+
+- Active Prometheus Alerts:
+    * InstanceDown: FIRING (critical) - instance 10.0.11.132:9100
+    * NodeAvailabilityBurnRateHigh: FIRING (critical) - instance 10.0.11.132:9100
+
+- Application & Load Balancer State:
+    * Target Group: arn:aws:elasticloadbalancing:eu-west-1:982534378429:targetgroup/sre-dev-web-tg/2584740453096312
+    * Target i-06b9096543449916d:80 (App-A): healthy
+    * Target i-078cdb8c637466f5e:80 (App-B): healthy
+    * ALB Endpoint: http://sre-dev-alb-1147481649.eu-west-1.elb.amazonaws.com
+    * ALB HTTP Response: 200 OK
+    * Application Health: healthy (Nginx operational on all targets)
+
+--------------------------------------------------------------------------------
+4. INCIDENT INTELLIGENCE CORRELATION & RCA
+--------------------------------------------------------------------------------
+- Incident ID: INC-255A868F
+- Severity: CRITICAL
+- Classification / Root Cause: monitoring_agent_failure
+- Confidence: HIGH
+- Affected Component: 10.0.11.132:9100 (App-A node_exporter)
+- Impact Assessment:
+    * Monitoring: True
+    * Application: False
+    * Infrastructure: False
+    * Customer: False
+- Recommended Action: restart node_exporter
+- Approval Required: True
+- Incident Status: AWAITING_REMEDIATION_APPROVAL
+
+--------------------------------------------------------------------------------
+5. REMEDIATION SAFETY CHECK
+--------------------------------------------------------------------------------
+- Remediation Executed: NO
+- Remediation Adapter Invoked: NO
+- Action Status: Awaiting explicit human approval before Step 2
+================================================================================

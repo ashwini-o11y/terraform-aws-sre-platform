@@ -1,0 +1,62 @@
+PHASE 8B LIVE SSM REMEDIATION ADAPTER SUMMARY
+
+Files changed:
+- incident_intelligence/execution.py
+- incident_intelligence/remediation.py
+- tests/test_incident_intelligence.py
+
+Total tests: 31
+Tests passed: 31
+
+Exact SSM execution flow:
+1. Validate incident category is monitoring_agent_failure.
+2. Validate recommended action is restart_node_exporter.
+3. Validate strict human approval (approved=True) and approver details.
+4. Validate target instance ID is explicit and matches the incident's affected resource.
+5. Build a fixed SSM payload with:
+   - DocumentName = AWS-RunShellScript
+   - InstanceIds = [target_instance_id]
+   - Parameters.commands = [
+       "systemctl restart node_exporter",
+       "systemctl is-active --quiet node_exporter"
+     ]
+   - TimeoutSeconds = 60
+   - MaxConcurrency = 1
+   - MaxErrors = 0
+6. Submit via boto3.client('ssm').send_command().
+7. Poll get_command_invocation() for completion with a bounded wait window.
+8. Return structured result containing status, exit code, stdout/stderr excerpts, and metadata.
+
+Exact safety gates:
+- action must be in ALLOWED_ACTIONS
+- incident category must be monitoring_agent_failure
+- recommended action must match restart_node_exporter
+- approval must be approved=True and include approver/reason
+- target must be an exact EC2 instance ID and match the incident
+- no arbitrary command string accepted
+- no generic shell execution interface
+- default behavior remains dry_run=True
+- no live path unless a dedicated execution adapter is used
+
+IAM requirements discovered:
+- Existing Terraform config already includes EC2 instance roles with AmazonSSMManagedInstanceCore attached for app, Prometheus, and Grafana instances.
+- No IAM modification was required for this repo-local implementation.
+- If live SSM execution were to be run in AWS, the current role assumption is already aligned with the platform's SSM-managed instance pattern.
+
+Whether Terraform changes are required:
+- No Terraform changes required for this implementation.
+- No infrastructure deployment was performed.
+
+Whether any real AWS command was executed:
+- No real AWS command was executed.
+- No boto3 SSM send_command was run against AWS.
+
+Whether any real service was restarted:
+- No real service was restarted.
+- The adapter never executes outside the mocked test environment.
+
+What remains before a controlled live remediation drill:
+- Human review and explicit approval of the execution adapter path.
+- A real AWS environment with an SSM-enabled instance and verified IAM role.
+- Controlled validation of the target instance identity and health checks.
+- Manual sign-off before running the approved SSM command in production.

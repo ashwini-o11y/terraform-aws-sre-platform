@@ -112,3 +112,60 @@ resource "aws_iam_instance_profile" "grafana" {
     Tier        = "monitoring"
   }
 }
+
+# ---------------------------------------------------------
+# Least-Privilege IAM Policy for Remediation Executor (Role B)
+# ---------------------------------------------------------
+
+resource "aws_iam_policy" "remediation_executor" {
+  name        = "sre-${var.environment}-remediation-executor-policy"
+  description = "Least-privilege policy for human-approved SRE remediation via AWS Systems Manager"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "SSMSendCommandRestricted"
+        Effect = "Allow"
+        Action = [
+          "ssm:SendCommand"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.aws_region}:*:document/AWS-RunShellScript",
+          "arn:aws:ec2:${var.aws_region}:*:instance/*"
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/Project" = "SRE Platform"
+          }
+        }
+      },
+      {
+        Sid    = "SSMCommandInvocationRead"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetCommandInvocation",
+          "ssm:ListCommands",
+          "ssm:DescribeInstanceInformation"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EC2TargetDiscoveryRead"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "sre-${var.environment}-remediation-executor-policy"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = "SRE Platform"
+    Tier        = "operations"
+  }
+}

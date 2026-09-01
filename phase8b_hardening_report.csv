@@ -1,0 +1,38 @@
+section,category,field,value
+implementation,files_changed,"incident_intelligence/remediation.py; incident_intelligence/__main__.py; tests/test_incident_intelligence.py",""
+implementation,tests_added,"test_phase_8b_approval_requires_allowlisted_action; test_phase_8b_human_approval_is_required_before_execution; test_phase_8b_invalid_action_is_blocked; test_phase_8b_recommendation_action_mismatch_is_blocked; test_phase_8b_wrong_incident_category_is_blocked; test_phase_8b_approved_restart_node_exporter_prepare_is_safe; test_phase_8b_cli_requires_approval_to_run_dry_run; test_phase_8b_cli_approved_dry_run_only; test_phase_8b_no_arbitrary_command_execution_capability; test_phase_8b_verification_marks_incident_closed_when_recovery_is_observed",""
+validation,total_tests,passed,16
+validation,pytest_or_unittest,command,"python3 -m unittest discover -v"
+validation,git_diff_check,passed,yes
+safety,allowed_actions,"{'restart_node_exporter'}",yes
+safety,explicit_approval_required,required,yes
+safety,incident_category_validation,required,yes
+safety,recommendation_action_match,required,yes
+safety,arbitrary_shell_protection,"No subprocess.run; no generic command runner",yes
+safety,aws_ssm_protection,"No AWS/SSM call path in remediation.py",yes
+safety,dry_run_default,default_value,true
+execution,entrypoint,"execute_human_approved_remediation(incident, approval, *, dry_run=True, execution_adapter=None)",""
+execution,valid_approved_action_behavior,"status='dry_run'; executed=False",yes
+execution,invalid_action_behavior,"status='blocked'; executed=False",yes
+execution,missing_approval_behavior,"status='blocked'; executed=False",yes
+execution,wrong_incident_category_behavior,"status='blocked'; executed=False",yes
+execution,disabled_live_adapter,"DisabledExecutionAdapter.execute() returns status='not_implemented'",yes
+execution,actual_live_remediation,enabled,No
+cli,approval_flag,"--approve-action",yes
+cli,approver_flag,"--approver",yes
+cli,approval_reason_flag,"--approval-reason",yes
+cli,without_approval_behavior,"blocked dry-run path or CLI prints human approval required",yes
+cli,with_approval_behavior,"dry-run preparation only",yes
+verification,verification_function,"verify_node_exporter_recovery(...)",yes
+verification,checks,"exporter_health, prometheus_target_up, alert_cleared, alb_healthy, app_healthy",yes
+verification,closure_function,"close_incident_if_verified(verification)",yes
+verification,closure_requirement,"all checks must be True",yes
+future_work,real_execution_adapter,required,yes
+future_work,live_aws_ssm_adapter,required,yes
+future_work,live_verification_calls,required,yes
+future_work,production_approval_ui_or_cli,required,yes
+future_work,rollback_and_audit_logging,required,yes
+final_status,commit_created,no
+final_status,terraform_apply,no
+final_status,live_remediation_executed,no
+final_status,service_restart_executed,no

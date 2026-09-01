@@ -1,0 +1,160 @@
+================================================================================
+PHASE 8B — FINAL CLOSURE, DOCUMENTATION & SECURITY HARDENING REPORT
+================================================================================
+Date: 2026-09-01
+Status: COMPLETE
+
+--------------------------------------------------------------------------------
+1. FILES CHANGED
+--------------------------------------------------------------------------------
+- README.md: Updated to accurately describe the complete SRE Platform architecture,
+  observability stack, multi-window SLO burn-rate alerting, Phase 8A RCA,
+  Phase 8B human-approved remediation model, safety guarantees, and roadmap.
+- iam.tf: Added a dedicated least-privilege IAM policy definition
+  (sre-dev-remediation-executor-policy) for Role B (Remediation Execution Identity).
+- incident_intelligence/__main__.py: Hardened CLI arguments and execution handling
+  for dry-run and explicit approval validation.
+- tests/test_incident_intelligence.py: Comprehensive test suite expanded to 31
+  isolated unit tests covering all safety gates, adapter paths, and verification closures.
+
+--------------------------------------------------------------------------------
+2. FILES CREATED
+--------------------------------------------------------------------------------
+- docs/incidents/phase-8b-node-exporter-recovery.md: Complete Phase 8B incident drill
+  report containing architecture, failure scenario, telemetry evidence, exact
+  timestamps, SSM command IDs, safety gates, and 8-point recovery verification.
+- incident_intelligence/execution.py: Isolated, allowlist-enforced AWS Systems Manager
+  execution adapter for restart_node_exporter.
+- incident_intelligence/remediation.py: Human approval validation model, allowlist checks,
+  multi-point verification evaluator, and incident closure gate.
+- phase8b_preflight_check_report.txt: Pre-flight check documentation.
+- phase8b_drill_step1_report.txt: Controlled failure injection & read-only capture report.
+- phase8b_drill_step2_report.txt: Step 2 live remediation execution and recovery verification report.
+
+--------------------------------------------------------------------------------
+3. README CHANGES
+--------------------------------------------------------------------------------
+- Added Platform Workflow & Lifecycle pipeline diagram:
+  DETECT -> CORRELATE -> ANALYZE (RCA) -> RECOMMEND -> HUMAN APPROVAL -> REMEDIATE -> VERIFY -> CLOSE
+- Documented core safety principle:
+  "RCA and remediation are deliberately separated. Incident Intelligence can analyze
+  signals and recommend an action, but remediation strictly requires explicit human
+  approval and strict allowlist validation before execution."
+- Documented multi-window multi-burn-rate SLO alerting model (14.4x critical, 6x warning).
+- Documented Phase 8A RCA deterministic engine and Phase 8B safety model.
+- Explicitly documented the bounded remediation scope: only restart_node_exporter.
+- Updated roadmap to reflect Phases 1-8B as complete, Phase 9 as Next (not implemented),
+  and Phase 10 as Planned.
+
+--------------------------------------------------------------------------------
+4. PHASE 8B DOCUMENTATION ADDED
+--------------------------------------------------------------------------------
+Created docs/incidents/phase-8b-node-exporter-recovery.md with:
+- Full architecture and role separation (Observability Plane -> Incident Intelligence ->
+  Human Operator -> SSM Executor -> EC2 Target Plane -> Verification).
+- Real drill telemetry:
+  * Incident: INC-255A868F
+  * Target: i-06b9096543449916d (10.0.11.132:9100)
+  * SSM Command ID: 0989fecf-2969-4784-8d6f-51a12c6b8692
+  * Submission/Completion: 2026-09-01T18:58:52Z -> 2026-09-01T18:58:55Z (Status: Success, Exit Code: 0)
+- 8-point post-remediation verification checklist.
+- Explicit list of what was intentionally NOT automated.
+
+--------------------------------------------------------------------------------
+5. IAM REVIEW RESULT
+--------------------------------------------------------------------------------
+- Role A (EC2 Instance Roles):
+  Instances (app-a, app-b, prometheus, grafana) assume instance profiles with the
+  AWS managed policy AmazonSSMManagedInstanceCore. This role allows the EC2 Systems
+  Manager Agent on the instances to poll SSM and execute assigned jobs. This remains unchanged.
+- Role B (Remediation Execution Identity):
+  The operator/orchestrator identity requires permissions to call ssm:SendCommand
+  and ssm:GetCommandInvocation. Created a dedicated least-privilege policy
+  sre-dev-remediation-executor-policy in iam.tf restricting ssm:SendCommand strictly
+  to AWS-RunShellScript and instances tagged Project = SRE Platform.
+
+--------------------------------------------------------------------------------
+6. WHETHER IAM WAS MODIFIED
+--------------------------------------------------------------------------------
+- In Terraform: Added aws_iam_policy.remediation_executor in iam.tf.
+- In Running Infrastructure: No terraform apply was run. Existing EC2 instance
+  roles and policies remain untouched.
+
+--------------------------------------------------------------------------------
+7. SAFETY IMPROVEMENTS
+--------------------------------------------------------------------------------
+- Strict Fail-Closed Logic: Any condition failing validation (unallowlisted action,
+  category mismatch, target ID mismatch or ambiguity, missing human approval)
+  returns status: blocked with executed: False.
+- Command Injection Prevention: The adapter enforces a fixed internal payload
+  (systemctl restart node_exporter and systemctl is-active --quiet node_exporter).
+  Any user-supplied command strings are rejected.
+- Dry-Run by Default: CLI and core execution functions default to dry_run=True.
+  Live execution requires explicit instantiation of the live adapter.
+- Zero Blind Retries: Failed executions or timed-out commands do not trigger
+  automated retries; they fail closed and escalate to human operators.
+- Verification Gated Closure: close_incident_if_verified() requires all 5 core health
+  criteria to be met before permitting incident resolution.
+
+--------------------------------------------------------------------------------
+8. TESTS BEFORE / AFTER
+--------------------------------------------------------------------------------
+- Before Phase 8B: 6 unit tests (Phase 8A RCA tests).
+- After Phase 8B: 31 unit tests passed (python3 -m unittest discover -v).
+- All tests execute in total isolation using mocked interfaces with zero live AWS calls.
+
+--------------------------------------------------------------------------------
+9. TERRAFORM VALIDATION RESULT
+--------------------------------------------------------------------------------
+- terraform fmt -check: PASS (Zero formatting issues)
+- terraform validate: Success! The configuration is valid.
+
+--------------------------------------------------------------------------------
+10. TERRAFORM PLAN RESULT
+--------------------------------------------------------------------------------
+Plan: 1 to add, 0 to change, 0 to destroy.
+Changes:
+  + resource "aws_iam_policy" "remediation_executor" (sre-dev-remediation-executor-policy)
+- No existing instances, load balancers, security groups, or instance profiles
+  are modified or destroyed.
+
+--------------------------------------------------------------------------------
+11. GIT DIFF CHECK RESULT
+--------------------------------------------------------------------------------
+- git diff --check: PASS (Clean, 0 errors, no trailing whitespace, clean EOF).
+
+--------------------------------------------------------------------------------
+12. RISKS
+--------------------------------------------------------------------------------
+- Zero Infrastructure Risk: No destructive changes or autonomous background loops.
+- Controlled Scope: The only executable remediation in the codebase is
+  restart_node_exporter on verified EC2 targets.
+
+--------------------------------------------------------------------------------
+13. REMAINING PHASE 8B GAPS
+--------------------------------------------------------------------------------
+- None: Phase 8B requirements (safety framework, execution adapter, unit test
+  coverage, controlled live drill execution, 8-point telemetry verification,
+  documentation, and least-privilege IAM specification) are 100% complete.
+
+--------------------------------------------------------------------------------
+14. EXACT CURRENT PROJECT STATUS
+--------------------------------------------------------------------------------
+- Phase 1 (AWS Foundation): COMPLETE
+- Phase 2 (Application Infrastructure): COMPLETE
+- Phase 3 (Prometheus Observability): COMPLETE
+- Phase 4 (Alertmanager): COMPLETE
+- Phase 5 (Grafana Visualization): COMPLETE
+- Phase 6 (SLO / Error Budgets / Burn Rates): COMPLETE
+- Phase 7 (Failure & Recovery Validation): COMPLETE
+- Phase 8A (Incident Intelligence / RCA): COMPLETE
+- Phase 8B (Human-Approved Remediation): COMPLETE
+
+--------------------------------------------------------------------------------
+15. RECOMMENDED NEXT PHASE
+--------------------------------------------------------------------------------
+- Phase 9 — Policy-Controlled Autonomous SRE:
+  * Introduce machine-evaluated safety policies (rate limits, cooldown windows, max failure quotas).
+  * Canary remediation patterns (remediate 1 replica, verify health before proceeding).
+  * Automated escalation to PagerDuty/Alertmanager if canary fails.
+================================================================================
