@@ -1,53 +1,93 @@
-# Incident Intelligence / RCA
+# Incident Intelligence & Deterministic RCA Engine
 
-This Phase 8A component is a standalone, read-only Python package. It does not alter Terraform, Prometheus, Alertmanager, Grafana, AWS resources, or application services.
+An engineering deep dive into the architecture, mathematical reasoning, safety constraints, and implementation of the `incident_intelligence` subsystem.
 
-## Architecture
+---
+
+## 1. Architectural Purpose
+
+The `incident_intelligence` package is a standalone, read-only Python subsystem designed to eliminate alert fatigue and human error during multi-system operational incidents.
+
+It operates under an uncompromised safety mandate:
+
+$$\text{Signals} \longrightarrow \text{Correlation} \longrightarrow \text{Deterministic RCA} \longrightarrow \text{Human Approval Gate} \longrightarrow \text{SSM Execution} \longrightarrow \text{Verification}$$
+
+> **Core Philosophy:** Diagnosis must never have side effects. An engine may recommend an action with mathematical determinism, but execution strictly requires out-of-band authorization and target validation.
+
+---
+
+## 2. Core Modules & Subsystem Structure
 
 ```text
-Prometheus targets, alerts, and rules -----+
-Alertmanager active alerts ----------------+--> read-only collectors --> deterministic correlation/RCA --> incident report + approval request
-AWS ALB target health ---------------------+
-ALB HTTP response -------------------------+
+incident_intelligence/
+├── collectors.py          # Read-only REST and AWS API signal collectors
+├── engine.py              # Pure-functional, deterministic correlation & RCA rules
+├── execution.py           # SSM live execution adapter (allowlist-enforced)
+├── model.py               # Strongly typed data models (SignalSnapshot, Incident)
+├── remediation.py         # Human approval gate, allowlist validation, and closure logic
+└── report.py              # Structured human-readable incident rendering
 ```
 
-The collector queries Prometheus and Alertmanager HTTP APIs, AWS `describe-target-health`/`describe-instances`, and the existing ALB HTTP endpoint. The engine operates only on the resulting `SignalSnapshot`; it has no execution or write path.
+---
 
-## Model and reasoning
+## 3. Data Model & Evidence Schema
 
-Each `Incident` carries the incident identity and scope, source evidence grouped by system, impact across monitoring/application/infrastructure/customer domains, RCA category and confidence, correlated alerts/targets/services, a timestamped timeline, recommended action, and an approval request.
+### `SignalSnapshot`
+Captures multi-source state at an exact point in time:
+- `prometheus_targets`: Scrape status (`health`, `lastError`, scrape duration)
+- `prometheus_alerts`: Active firing alerts with labels and annotations
+- `alertmanager_alerts`: Ingested Alertmanager alerts
+- `alb_targets`: AWS Target Group health descriptions (`State: healthy|unhealthy`)
+- `application`: Real-time probe results (HTTP status code, latency)
+- `known_events`: Historical maintenance and injection markers
 
-The current deterministic rule is intentionally narrow:
+### `Incident`
+Represents an evidence-backed operational anomaly:
+- `incident_id`: Deterministic hash (`INC-<SHA256>`)
+- `root_cause`: `category`, `confidence`, and evidence list
+- `impact`: Dimensional mapping across `monitoring`, `application`, `infrastructure`, and `customer`
+- `recommended_action`: Structured action payload (`action`, `reason`, `risk`)
+- `approval_required`: Always `True` for executable actions
+- `status`: Lifecycle state (`AWAITING_TRIAGE`, `AWAITING_REMEDIATION_APPROVAL`, `RESOLVED`)
 
-```text
-Prometheus target down + connection refused on :9100 + healthy matching ALB target + ALB HTTP 200
-  => monitoring_agent_failure, high confidence, no application/customer impact
-  => recommend restart node_exporter; approval required
+---
+
+## 4. Deterministic RCA Rules
+
+The engine replaces opaque heuristics with transparent, deterministic signal correlation:
+
+```python
+# Rule: Monitoring Agent Failure vs. Real Outage
+if name == "InstanceDown" and down_target:
+    if connection_refused and alb_healthy and app_healthy:
+        category = "monitoring_agent_failure"
+        confidence = "high"
+        action = "restart node_exporter"
+        impact = {"monitoring": True, "application": False, "infrastructure": False, "customer": False}
+        status = "AWAITING_REMEDIATION_APPROVAL"
 ```
 
-Related `InstanceDown` and `NodeAvailabilityBurnRateHigh` signals for the same exporter form one incident. An unhealthy matching ALB target together with an ALB HTTP 5xx response is an `application_availability_failure` with customer impact. CPU/memory/filesystem alerts are classified as `resource_saturation`. Unknown combinations are deliberately held at `AWAITING_TRIAGE`, not guessed.
+### Correlation Rule Matrix
 
-## Run
+| Observed Signals | Root Cause Category | Customer Impact | Recommended Action |
+|---|---|:---:|---|
+| Target `:9100` DOWN + Connection Refused + ALB Target HEALTHY + HTTP 200 | `monitoring_agent_failure` | **None** | `restart node_exporter` |
+| Target `:9100` DOWN + ALB Target UNHEALTHY + HTTP 5xx | `application_availability_failure` | **High** | Investigate ALB / Application |
+| `HighCPUUsage` / `CPUHealthBurnRateHigh` firing | `resource_saturation` | **None** | Investigate CPU Saturation |
+| Unrecognized or conflicting signal combinations | `unclassified` | **Unknown** | Hold at `AWAITING_TRIAGE` |
 
-Replay the documented App-A incident without contacting AWS:
+---
 
-```bash
-python3 -m incident_intelligence --fixture incident_intelligence/fixtures/app_a_node_exporter_down.json
-```
+## 5. Security & Safety Boundaries
 
-Collect from live, locally forwarded Prometheus and Alertmanager endpoints:
+### Why Arbitrary Shell Commands Are Forbidden
+To prevent command injection, privilege escalation, and unintentional infrastructure damage, the live execution adapter does not expose any generic shell runner.
 
-```bash
-python3 -m incident_intelligence \
-  --environment dev \
-  --alb-dns-name sre-dev-alb-1147481649.eu-west-1.elb.amazonaws.com \
-  --target-group-arn "$(terraform output -raw web_target_group_arn)"
-```
-
-## Approval gate and future remediation
-
-Phase 8A implements `ANALYZE -> RECOMMEND -> REQUEST_APPROVAL`. Every recommendation includes the proposed change, reason, resource, expected outcome, risk, and rollback statement. `EXECUTE` and `VERIFY` are reserved for a later phase. Future execution adapters may support exporter/nginx restarts, target draining, instance isolation/replacement, rollback, and post-action verification, but no such adapters exist here.
-
-## Limits
-
-The engine does not invent timestamps: the timeline contains only source timestamps and explicitly supplied known events. Current infrastructure-level root cause classification is conservative until additional CloudWatch, application metrics, logging, and tracing evidence is available.
+- **Allowlisted Action Set:** `ALLOWED_ACTIONS = {"restart_node_exporter"}`
+- **Fixed Execution Payload:** Hardcoded internally to:
+  ```bash
+  systemctl restart node_exporter
+  systemctl is-active --quiet node_exporter
+  ```
+- **Target Instance Validation:** The adapter strictly checks that the target instance ID starts with `i-` and matches the incident's affected resource candidate set.
+- **Fail-Closed Execution:** Any missing approval, ambiguous target, or unrecognized action aborts execution immediately (`status: blocked`, `executed: False`).

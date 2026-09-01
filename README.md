@@ -2,6 +2,28 @@
 
 A production-grade AWS Site Reliability Engineering (SRE) platform provisioned with **Terraform**, designed to demonstrate modern Infrastructure as Code, resilient cloud networking, multi-AZ workload architecture, metrics-driven observability, multi-window SLO burn-rate alerting, automated root cause analysis (RCA), and safe, human-approved remediation workflows via AWS Systems Manager.
 
+> **Key Leadership Principle:**
+> *"The objective is not to automate more operations. The objective is to automate the right operations safely."*
+>
+> *This platform is designed to help an organization understand what happened, determine what should be done, execute the appropriate action safely, verify that recovery occurred, and create a controlled path toward autonomous operations.*
+
+---
+
+## 💼 Business & Operational Impact
+
+Enterprise technology organizations require operational resilience, rapid recovery, and predictable service availability. This platform is architected to address core leadership concerns:
+
+| Leadership Concern | Platform Capability | Expected Operational Outcome |
+|---|---|---|
+| **Incident Detection** | Multi-window multi-burn-rate alerting ($14.4\times$ / $6\times$) | Faster detection of true budget burn; low false alerts |
+| **Troubleshooting & RCA** | Deterministic Incident Intelligence correlation | Instant identification of monitoring vs. application failures |
+| **Operational Risk** | Governed, allowlisted remediation via AWS SSM | Zero parameter injection; elimination of ad-hoc SSH access |
+| **Recovery Assurance** | 8-point automated telemetry verification | High confidence in verified service recovery before closure |
+| **Reliability Governance** | 30-day rolling SLOs and Error Budget tracking | Mathematical governance of feature velocity vs. stability |
+| **Operational Automation** | Safe human-approved remediation adapter (Phase 8B) | Bounded, audit-ready operational automation |
+
+*For a detailed leadership analysis and ROI metrics framework, see the [Platform Value & Leadership View](docs/leadership/platform-value.md).*
+
 ---
 
 ## 🎯 Platform Workflow & Lifecycle
@@ -145,34 +167,28 @@ Remediation execution is decoupled from diagnosis and governed by a strict safet
 
 ---
 
-## 📁 Repository Structure
+## 📁 Documentation Directory
+
+The platform documentation is organized for comprehensive engineering, operational, and executive review:
 
 ```text
-├── compute.tf                 # EC2 instances, Nginx & Node Exporter bootstrap
-├── data.tf                    # AWS data sources (AZs, AMIs)
-├── iam.tf                     # EC2 instance profiles and least-privilege executor policies
-├── main.tf                    # Core VPC and infrastructure orchestration
-├── network.tf                 # Internet Gateway, NAT Gateway, Route tables
-├── security.tf                # Security groups for ALB, App, Prometheus, Grafana
-├── subnets.tf                 # Public and Private multi-AZ subnet layout
-├── variables.tf               # Configurable deployment inputs
-├── outputs.tf                 # Exported VPC, ALB, and instance identifiers
-├── versions.tf                # Terraform & AWS provider version constraints
-├── docs/
-│   └── incidents/
-│       └── phase-8b-node-exporter-recovery.md  # Detailed live drill report & evidence
-├── grafana/                   # Dashboard provisioning and JSON definitions
-├── incident_intelligence/     # RCA, safety gates, and remediation engine
-│   ├── collectors.py          # Read-only telemetry collectors
-│   ├── engine.py              # Deterministic correlation and RCA rules
-│   ├── execution.py           # SSM live execution adapter (allowlist-enforced)
-│   ├── model.py               # Incident and Signal data classes
-│   ├── remediation.py         # Approval gates, verification, and closure logic
-│   └── report.py              # Human-readable incident rendering
-├── runbooks/                  # Operational playbooks for alert response
-├── sre/                       # SLI/SLO and burn-rate definitions
-└── tests/
-    └── test_incident_intelligence.py  # 31 automated unit tests
+Documentation
+├── Executive & Leadership
+│   └── [Platform Value & Leadership View](docs/leadership/platform-value.md)
+├── Architecture & Security
+│   ├── [Platform Architecture](docs/architecture/architecture.md)
+│   └── [Security & Access Control Model](docs/architecture/security-model.md)
+├── SRE & Reliability Engineering
+│   ├── [Service Level Indicators & Objectives (SLIs/SLOs)](docs/sre/sli-slo.md)
+│   ├── [Error Budget Management](docs/sre/error-budget.md)
+│   └── [Multi-Window Burn-Rate Alerting](docs/sre/burn-rate.md)
+├── Incident Management & Operations
+│   ├── [Phase 8B Live Incident Drill Report](docs/incidents/phase-8b-node-exporter-recovery.md)
+│   └── [Node Exporter Recovery Runbook (SOP-SRE-001)](docs/runbooks/node-exporter-recovery.md)
+├── Engineering Implementation
+│   └── [Incident Intelligence Engine Deep Dive](incident_intelligence/README.md)
+└── Future Evolution
+    └── [Phase 9 Autonomous SRE Roadmap](docs/roadmap/phase-9-autonomous-sre.md)
 ```
 
 ---
@@ -190,7 +206,7 @@ Remediation execution is decoupled from diagnosis and governed by a strict safet
 | **Phase 7** | Failure & Recovery Validation | ✅ **Complete** | Controlled failure testing and alert firing verification |
 | **Phase 8A** | Incident Intelligence & RCA | ✅ **Complete** | Deterministic incident correlation & recommendation engine |
 | **Phase 8B** | Human-Approved Remediation | ✅ **Complete** | SSM live execution adapter, safety gates, live drill verified |
-| **Phase 9** | Policy-Controlled Autonomous SRE | 🔜 **Next** | Automated policy evaluations, rate limits, canary remediation |
+| **Phase 9** | Policy-Controlled Autonomous SRE | 🔜 **Planned** | Automated policy evaluations, rate limits, canary remediation |
 | **Phase 10** | Portfolio Hardening & Demo | 📋 **Planned** | End-to-end interactive CLI, automated demonstration suite |
 
 ---
