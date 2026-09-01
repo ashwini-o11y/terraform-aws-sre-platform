@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-08-31T22:15:00Z",
+  "environment": "dev",
+  "prometheus_targets": [
+    {"labels": {"instance": "10.0.11.132:9100", "job": "node-exporter"}, "health": "down", "lastError": "Get \"http://10.0.11.132:9100/metrics\": dial tcp 10.0.11.132:9100: connect: connection refused"},
+    {"labels": {"instance": "10.0.12.233:9100", "job": "node-exporter"}, "health": "up", "lastError": ""}
+  ],
+  "prometheus_alerts": [
+    {"labels": {"alertname": "InstanceDown", "instance": "10.0.11.132:9100", "severity": "critical"}, "state": "firing", "activeAt": "2026-08-31T22:14:54.961Z"},
+    {"labels": {"alertname": "NodeAvailabilityBurnRateHigh", "instance": "10.0.11.132:9100", "severity": "critical"}, "state": "firing", "activeAt": "2026-08-31T22:14:54.961Z"}
+  ],
+  "alertmanager_alerts": [
+    {"labels": {"alertname": "InstanceDown", "instance": "10.0.11.132:9100", "severity": "critical"}, "startsAt": "2026-08-31T22:14:54.961Z"},
+    {"labels": {"alertname": "NodeAvailabilityBurnRateHigh", "instance": "10.0.11.132:9100", "severity": "critical"}, "startsAt": "2026-08-31T22:14:54.961Z"}
+  ],
+  "alb_targets": [{"instance_id": "i-06b9096543449916d", "private_ip": "10.0.11.132", "health": "healthy"}],
+  "application": {"url": "http://sre-dev-alb-1147481649.eu-west-1.elb.amazonaws.com", "status_code": 200},
+  "collection_errors": [],
+  "known_events": [{"timestamp": "2026-08-31T21:56:43Z", "event": "node_exporter failure injected"}, {"timestamp": "2026-08-31T21:56:57Z", "event": "Prometheus target observed down"}]
+}

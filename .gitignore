@@ -53,3 +53,8 @@ grafana-state.txt
 
 # Dashboard backups
 *.backup
+
+# Python bytecode and cache artifacts
+__pycache__/
+*.py[cod]
+*$py.class

@@ -129,9 +129,6 @@ resource "aws_instance" "web" {
 # ---------------------------------------------------------
 # Private Application Server A
 # ---------------------------------------------------------
-# ---------------------------------------------------------
-# Private Application Server A
-# ---------------------------------------------------------
 
 resource "aws_instance" "app_a" {
   ami           = var.ami_id
@@ -285,10 +282,6 @@ resource "aws_iam_instance_profile" "app_ssm" {
 # Private Application Server B
 # ---------------------------------------------------------
 
-# ---------------------------------------------------------
-# Private Application Server B
-# ---------------------------------------------------------
-
 resource "aws_instance" "app_b" {
   ami           = var.ami_id
   instance_type = "t3.micro"
@@ -415,9 +408,6 @@ resource "aws_lb_target_group_attachment" "app_b" {
   target_id        = aws_instance.app_b.id
   port             = 80
 }
-# ---------------------------------------------------------
-# Prometheus Monitoring Server
-# ---------------------------------------------------------
 
 # ---------------------------------------------------------
 # Prometheus + Alertmanager Monitoring Server
@@ -450,24 +440,14 @@ resource "aws_instance" "prometheus" {
 
               set -e
 
-              # -------------------------------------------------
-              # System update
-              # -------------------------------------------------
-
               dnf update -y
 
-              # -------------------------------------------------
-              # Install AWS Systems Manager Agent
-              # -------------------------------------------------
 
               dnf install -y amazon-ssm-agent
 
               systemctl enable amazon-ssm-agent
               systemctl start amazon-ssm-agent
 
-              # -------------------------------------------------
-              # Prometheus user and directories
-              # -------------------------------------------------
 
               id prometheus >/dev/null 2>&1 || \
                 useradd --no-create-home --shell /bin/false prometheus
@@ -475,9 +455,6 @@ resource "aws_instance" "prometheus" {
               mkdir -p /etc/prometheus
               mkdir -p /var/lib/prometheus
 
-              # -------------------------------------------------
-              # Install Prometheus
-              # -------------------------------------------------
 
               cd /tmp
 
@@ -491,9 +468,6 @@ resource "aws_instance" "prometheus" {
               rm -rf /tmp/prometheus-3.5.0.linux-amd64
               rm -f /tmp/prometheus-3.5.0.linux-amd64.tar.gz
 
-              # -------------------------------------------------
-              # Prometheus configuration
-              # -------------------------------------------------
 
               cat > /etc/prometheus/prometheus.yml <<'PROM'
               global:
@@ -518,128 +492,368 @@ resource "aws_instance" "prometheus" {
                         - "${aws_instance.app_b.private_ip}:9100"
               PROM
 
-              # -------------------------------------------------
-              # Prometheus alert rules
-              # -------------------------------------------------
 
               mkdir -p /etc/prometheus/rules
 
               cat > /etc/prometheus/rules/sre-platform-alerts.yml <<'RULES'
               groups:
-                - name: sre-platform-alerts
-                  interval: 30s
-
+                - name: sre-platform-rules
                   rules:
 
-                    # -------------------------------------------------
-                    # SLI Recording Rules
-                    # -------------------------------------------------
 
                     - record: sre:node_availability:ratio
                       expr: |
-                        avg by(instance) (
-                          up{job="node-exporter"}
-                        )
+                        up{job="node-exporter"}
 
                     - record: sre:cpu_health:ratio
                       expr: |
-                        avg by(instance) (
+                        (
+                          100 -
                           (
-                            100 - (
-                              rate(node_cpu_seconds_total{mode="idle"}[5m]) * 100
-                            )
-                          ) <= bool 80
-                        )
+                            rate(node_cpu_seconds_total{mode="idle"}[5m]) * 100
+                          )
+                        ) <= bool 80
 
                     - record: sre:memory_health:ratio
                       expr: |
-                        avg by(instance) (
+                        (
+                          100 *
                           (
-                            100 * (
-                              1 -
-                              (
-                                node_memory_MemAvailable_bytes /
-                                node_memory_MemTotal_bytes
-                              )
+                            1 -
+                            (
+                              node_memory_MemAvailable_bytes /
+                              node_memory_MemTotal_bytes
                             )
-                          ) <= bool 85
-                        )
+                          )
+                        ) <= bool 85
 
                     - record: sre:filesystem_health:ratio
                       expr: |
-                        avg by(instance) (
+                        (
+                          100 *
                           (
-                            100 * (
-                              1 -
-                              (
-                                node_filesystem_avail_bytes{
-                                  mountpoint="/",
-                                  fstype!="tmpfs"
-                                }
-                                /
-                                node_filesystem_size_bytes{
-                                  mountpoint="/",
-                                  fstype!="tmpfs"
-                                }
-                              )
+                            1 -
+                            (
+                              node_filesystem_avail_bytes{
+                                mountpoint="/",
+                                fstype!="tmpfs"
+                              }
+                              /
+                              node_filesystem_size_bytes{
+                                mountpoint="/",
+                                fstype!="tmpfs"
+                              }
                             )
-                          ) <= bool 85
+                          )
+                        ) <= bool 85
+
+
+                    - record: sre:node_availability:samples_30d
+                      expr: |
+                        count_over_time(
+                          sre:node_availability:ratio[30d]
                         )
 
-                    # -------------------------------------------------
-                    # SLO Recording Rules
-                    # -------------------------------------------------
-
-                    - record: sre:node_availability:slo
+                    - record: sre:cpu_health:samples_30d
                       expr: |
-                        avg(
-                          sre:node_availability:ratio
-                        ) >= 0.999
+                        count_over_time(
+                          sre:cpu_health:ratio[30d]
+                        )
 
-                    - record: sre:cpu_health:slo
+                    - record: sre:memory_health:samples_30d
                       expr: |
-                        avg(
-                          sre:cpu_health:ratio
-                        ) >= 0.99
+                        count_over_time(
+                          sre:memory_health:ratio[30d]
+                        )
 
-                    - record: sre:memory_health:slo
+                    - record: sre:filesystem_health:samples_30d
                       expr: |
-                        avg(
-                          sre:memory_health:ratio
-                        ) >= 0.99
+                        count_over_time(
+                          sre:filesystem_health:ratio[30d]
+                        )
 
-                    - record: sre:filesystem_health:slo
+
+                    - record: sre:node_availability:slo_30d
                       expr: |
-                        avg(
-                          sre:filesystem_health:ratio
-                        ) >= 0.99
+                        (
+                          avg_over_time(
+                            sre:node_availability:ratio[30d]
+                          )
+                          and
+                          (
+                            sre:node_availability:samples_30d >= 164160
+                          )
+                        )
 
-                    # -------------------------------------------------
-                    # Error Budget Recording Rules
-                    # -------------------------------------------------
-
-                    - record: sre:node_availability:error_budget
+                    - record: sre:cpu_health:slo_30d
                       expr: |
-                        1 - 0.999
+                        (
+                          avg_over_time(
+                            sre:cpu_health:ratio[30d]
+                          )
+                          and
+                          (
+                            sre:cpu_health:samples_30d >= 164160
+                          )
+                        )
 
-                    - record: sre:cpu_health:error_budget
+                    - record: sre:memory_health:slo_30d
                       expr: |
-                        1 - 0.99
+                        (
+                          avg_over_time(
+                            sre:memory_health:ratio[30d]
+                          )
+                          and
+                          (
+                            sre:memory_health:samples_30d >= 164160
+                          )
+                        )
 
-                    - record: sre:memory_health:error_budget
+                    - record: sre:filesystem_health:slo_30d
                       expr: |
-                        1 - 0.99
+                        (
+                          avg_over_time(
+                            sre:filesystem_health:ratio[30d]
+                          )
+                          and
+                          (
+                            sre:filesystem_health:samples_30d >= 164160
+                          )
+                        )
 
-                    - record: sre:filesystem_health:error_budget
+
+                    - record: sre:node_availability:observed_1h
                       expr: |
-                        1 - 0.99
+                        avg_over_time(
+                          sre:node_availability:ratio[1h]
+                        )
 
-                    # -------------------------------------------------
-                    # Alert Rules
-                    # -------------------------------------------------
+                    - record: sre:cpu_health:observed_1h
+                      expr: |
+                        avg_over_time(
+                          sre:cpu_health:ratio[1h]
+                        )
+
+                    - record: sre:memory_health:observed_1h
+                      expr: |
+                        avg_over_time(
+                          sre:memory_health:ratio[1h]
+                        )
+
+                    - record: sre:filesystem_health:observed_1h
+                      expr: |
+                        avg_over_time(
+                          sre:filesystem_health:ratio[1h]
+                        )
+
+
+                    - record: sre:node_availability:error_budget_remaining_30d
+                      expr: |
+                        clamp_min(
+                          1 -
+                          (
+                            (
+                              1 -
+                              sre:node_availability:slo_30d
+                            )
+                            /
+                            0.001
+                          ),
+                          0
+                        )
+
+                    - record: sre:cpu_health:error_budget_remaining_30d
+                      expr: |
+                        clamp_min(
+                          1 -
+                          (
+                            (
+                              1 -
+                              sre:cpu_health:slo_30d
+                            )
+                            /
+                            0.01
+                          ),
+                          0
+                        )
+
+                    - record: sre:memory_health:error_budget_remaining_30d
+                      expr: |
+                        clamp_min(
+                          1 -
+                          (
+                            (
+                              1 -
+                              sre:memory_health:slo_30d
+                            )
+                            /
+                            0.01
+                          ),
+                          0
+                        )
+
+                    - record: sre:filesystem_health:error_budget_remaining_30d
+                      expr: |
+                        clamp_min(
+                          1 -
+                          (
+                            (
+                              1 -
+                              sre:filesystem_health:slo_30d
+                            )
+                            /
+                            0.01
+                          ),
+                          0
+                        )
+
+
+                    - record: sre:node_availability:burn_rate_5m
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:node_availability:ratio[5m]
+                          )
+                        ) / 0.001
+
+                    - record: sre:cpu_health:burn_rate_5m
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:cpu_health:ratio[5m]
+                          )
+                        ) / 0.01
+
+                    - record: sre:memory_health:burn_rate_5m
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:memory_health:ratio[5m]
+                          )
+                        ) / 0.01
+
+                    - record: sre:filesystem_health:burn_rate_5m
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:filesystem_health:ratio[5m]
+                          )
+                        ) / 0.01
+
+
+                    - record: sre:node_availability:burn_rate_1h
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:node_availability:ratio[1h]
+                          )
+                        ) / 0.001
+
+                    - record: sre:cpu_health:burn_rate_1h
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:cpu_health:ratio[1h]
+                          )
+                        ) / 0.01
+
+                    - record: sre:memory_health:burn_rate_1h
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:memory_health:ratio[1h]
+                          )
+                        ) / 0.01
+
+                    - record: sre:filesystem_health:burn_rate_1h
+                      expr: |
+                        (
+                          1 -
+                          avg_over_time(
+                            sre:filesystem_health:ratio[1h]
+                          )
+                        ) / 0.01
+
+
+                    - alert: NodeAvailabilityBurnRateHigh
+                      expr: |
+                        (
+                          sre:node_availability:burn_rate_5m > 14.4
+                        )
+                        and
+                        (
+                          sre:node_availability:burn_rate_1h > 14.4
+                        )
+                      for: 2m
+                      labels:
+                        severity: critical
+                        team: sre
+                      annotations:
+                        summary: "Node availability SLO burn rate is high"
+                        description: "Node {{ $labels.instance }} is consuming the 99.9% availability error budget at more than 14.4x the sustainable rate."
+
+                    - alert: CPUHealthBurnRateHigh
+                      expr: |
+                        (
+                          sre:cpu_health:burn_rate_5m > 14.4
+                        )
+                        and
+                        (
+                          sre:cpu_health:burn_rate_1h > 14.4
+                        )
+                      for: 2m
+                      labels:
+                        severity: critical
+                        team: sre
+                      annotations:
+                        summary: "CPU health SLO burn rate is high"
+                        description: "CPU health on {{ $labels.instance }} is consuming the 99% error budget at more than 14.4x the sustainable rate."
+
+                    - alert: MemoryHealthBurnRateHigh
+                      expr: |
+                        (
+                          sre:memory_health:burn_rate_5m > 14.4
+                        )
+                        and
+                        (
+                          sre:memory_health:burn_rate_1h > 14.4
+                        )
+                      for: 2m
+                      labels:
+                        severity: critical
+                        team: sre
+                      annotations:
+                        summary: "Memory health SLO burn rate is high"
+                        description: "Memory health on {{ $labels.instance }} is consuming the 99% error budget at more than 14.4x the sustainable rate."
+
+                    - alert: FilesystemHealthBurnRateHigh
+                      expr: |
+                        (
+                          sre:filesystem_health:burn_rate_5m > 14.4
+                        )
+                        and
+                        (
+                          sre:filesystem_health:burn_rate_1h > 14.4
+                        )
+                      for: 2m
+                      labels:
+                        severity: critical
+                        team: sre
+                      annotations:
+                        summary: "Filesystem health SLO burn rate is high"
+                        description: "Filesystem health on {{ $labels.instance }} is consuming the 99% error budget at more than 14.4x the sustainable rate."
+
 
                     - alert: InstanceDown
-                      expr: up{job="node-exporter"} == 0
+                      expr: |
+                        up{job="node-exporter"} == 0
                       for: 2m
                       labels:
                         severity: critical
@@ -650,10 +864,13 @@ resource "aws_instance" "prometheus" {
 
                     - alert: HighCPUUsage
                       expr: |
-                        100 - (
-                          avg by(instance) (
-                            rate(node_cpu_seconds_total{mode="idle"}[5m])
-                          ) * 100
+                        (
+                          100 -
+                          (
+                            avg by(instance) (
+                              rate(node_cpu_seconds_total{mode="idle"}[5m])
+                            ) * 100
+                          )
                         ) > 80
                       for: 5m
                       labels:
@@ -665,11 +882,14 @@ resource "aws_instance" "prometheus" {
 
                     - alert: HighMemoryUsage
                       expr: |
-                        100 * (
-                          1 -
+                        (
+                          100 *
                           (
-                            node_memory_MemAvailable_bytes /
-                            node_memory_MemTotal_bytes
+                            1 -
+                            (
+                              node_memory_MemAvailable_bytes /
+                              node_memory_MemTotal_bytes
+                            )
                           )
                         ) > 85
                       for: 5m
@@ -682,18 +902,21 @@ resource "aws_instance" "prometheus" {
 
                     - alert: FilesystemAlmostFull
                       expr: |
-                        100 * (
-                          1 -
+                        (
+                          100 *
                           (
-                            node_filesystem_avail_bytes{
-                              mountpoint="/",
-                              fstype!="tmpfs"
-                            }
-                            /
-                            node_filesystem_size_bytes{
-                              mountpoint="/",
-                              fstype!="tmpfs"
-                            }
+                            1 -
+                            (
+                              node_filesystem_avail_bytes{
+                                mountpoint="/",
+                                fstype!="tmpfs"
+                              }
+                              /
+                              node_filesystem_size_bytes{
+                                mountpoint="/",
+                                fstype!="tmpfs"
+                              }
+                            )
                           )
                         ) > 85
                       for: 5m
@@ -703,24 +926,11 @@ resource "aws_instance" "prometheus" {
                       annotations:
                         summary: "Filesystem usage is high"
                         description: "Root filesystem on {{ $labels.instance }} has been above 85% utilization for more than 5 minutes."
-
-                    - alert: PrometheusTargetDown
-                      expr: up{job="node-exporter"} == 0
-                      for: 2m
-                      labels:
-                        severity: critical
-                        team: sre
-                      annotations:
-                        summary: "Prometheus target is down"
-                        description: "Prometheus cannot scrape {{ $labels.instance }} for more than 2 minutes."
               RULES
 
               chown -R prometheus:prometheus /etc/prometheus
               chown -R prometheus:prometheus /var/lib/prometheus
 
-              # -------------------------------------------------
-              # Validate Prometheus configuration
-              # -------------------------------------------------
 
               /usr/local/bin/promtool check config \
                 /etc/prometheus/prometheus.yml
@@ -728,9 +938,6 @@ resource "aws_instance" "prometheus" {
               /usr/local/bin/promtool check rules \
                 /etc/prometheus/rules/sre-platform-alerts.yml
 
-              # -------------------------------------------------
-              # Prometheus systemd service
-              # -------------------------------------------------
 
               cat > /etc/systemd/system/prometheus.service <<'SERVICE'
               [Unit]
@@ -755,9 +962,6 @@ resource "aws_instance" "prometheus" {
               WantedBy=multi-user.target
               SERVICE
 
-              # -------------------------------------------------
-              # Install Alertmanager
-              # -------------------------------------------------
 
               id alertmanager >/dev/null 2>&1 || \
                 useradd --no-create-home --shell /bin/false alertmanager
@@ -777,9 +981,6 @@ resource "aws_instance" "prometheus" {
               rm -rf /tmp/alertmanager-0.33.1.linux-amd64
               rm -f /tmp/alertmanager-0.33.1.linux-amd64.tar.gz
 
-              # -------------------------------------------------
-              # Alertmanager configuration
-              # -------------------------------------------------
 
               cat > /etc/alertmanager/alertmanager.yml <<'ALERTMANAGER'
               global:
@@ -812,16 +1013,10 @@ resource "aws_instance" "prometheus" {
               chown -R alertmanager:alertmanager /etc/alertmanager
               chown -R alertmanager:alertmanager /var/lib/alertmanager
 
-              # -------------------------------------------------
-              # Validate Alertmanager configuration
-              # -------------------------------------------------
 
               /usr/local/bin/amtool check-config \
                 /etc/alertmanager/alertmanager.yml
 
-              # -------------------------------------------------
-              # Alertmanager systemd service
-              # -------------------------------------------------
 
               cat > /etc/systemd/system/alertmanager.service <<'SERVICE'
               [Unit]
@@ -846,9 +1041,6 @@ resource "aws_instance" "prometheus" {
               WantedBy=multi-user.target
               SERVICE
 
-              # -------------------------------------------------
-              # Start services
-              # -------------------------------------------------
 
               systemctl daemon-reload
 
@@ -858,9 +1050,6 @@ resource "aws_instance" "prometheus" {
               systemctl restart alertmanager
               systemctl restart prometheus
 
-              # -------------------------------------------------
-              # Final status
-              # -------------------------------------------------
 
               systemctl is-active --quiet alertmanager
               systemctl is-active --quiet prometheus
@@ -874,6 +1063,7 @@ resource "aws_instance" "prometheus" {
     Tier        = "monitoring"
   }
 }
+
 # ---------------------------------------------------------
 # Grafana Monitoring Server
 # ---------------------------------------------------------
@@ -990,8 +1180,9 @@ resource "aws_instance" "grafana" {
               # Deploy SRE Platform Dashboard
               # -------------------------------------------------
 
-              echo '${base64encode(file("${path.module}/grafana/dashboards/sre-platform-overview.json"))}' \
-                | base64 -d > /var/lib/grafana/dashboards/sre-platform-overview.json
+              echo '${base64gzip(file("${path.module}/grafana/dashboards/sre-platform-overview.json"))}' \
+                | base64 -d \
+                | gunzip > /var/lib/grafana/dashboards/sre-platform-overview.json
 
               chown -R grafana:grafana /var/lib/grafana/dashboards
               chmod 644 /var/lib/grafana/dashboards/sre-platform-overview.json
